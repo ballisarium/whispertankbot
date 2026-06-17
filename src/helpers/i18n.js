@@ -1,3 +1,7 @@
+import { escapeHtml } from './html.js';
+
+const safeBotUsername = (botUsername) => escapeHtml(botUsername || 'YourBot');
+
 const translations = {
   en: {
     welcomeMessage: (botUsername) => `<b>whisper tank bot</b>
@@ -5,28 +9,30 @@ const translations = {
 send secret messages that only specific people can read.
 
 <b>how to use:</b>
-• type <code>@${botUsername}</code> in any chat
+• type <code>@${safeBotUsername(botUsername)}</code> in any chat
 • add recipient: <code>@username</code> or user id
 • write your secret message
 
 <b>examples:</b>
-<code>@${botUsername} @friend hello!</code> — only @friend can read
-<code>@${botUsername} secret text @friend</code> — everyone except @friend
+<code>@${safeBotUsername(botUsername)} @friend hello!</code> — only @friend can read
+<code>@${safeBotUsername(botUsername)} secret text @friend</code> — everyone except @friend
 
 secrets expire after 6 hours.
 
 <code>by @blaar × @club5926</code>`,
     
-    welcomeChooseLang: 'choose your language:',
     langChanged: 'language changed to english',
     startCooldown: (seconds) => `please wait ${seconds}s`,
     
     usageTitle: 'How to send a whisper?',
     usageHint: () => '<tg-emoji emoji-id="5884097155341226387">👁</tg-emoji> @friend hello — secret for @friend\n<tg-emoji emoji-id="6032609071373226027">👥</tg-emoji> hello @friend — hidden from @friend',
-    usageText: () => 'Specify username / ID and text',
     tooLongTitle: 'Too long: max 200 characters',
     tooLongHint: 'Secret is too long. Max 200 characters.',
     invalidTargetHint: () => '<tg-emoji emoji-id="5884097155341226387">👁</tg-emoji> @friend hello — secret for @friend\n<tg-emoji emoji-id="6032609071373226027">👥</tg-emoji> hello @friend — hidden from @friend',
+    targetUnavailableTitle: 'Cannot verify recipient',
+    targetUnavailableHint: (target) => `I cannot safely verify ${target}. Ask them to start the bot or use their numeric user ID.`,
+    storageUnavailableTitle: 'Cannot create secret',
+    storageUnavailableHint: 'Temporary storage is unavailable. Please try again later.',
     
     rateLimitTitle: 'Too many requests',
     rateLimitDescription: (seconds) => `Please wait ${seconds} seconds before sending more whispers`,
@@ -34,6 +40,8 @@ secrets expire after 6 hours.
     
     whisperTo: (target) => `Whisper to ${target}`,
     hiddenFrom: (target) => `Hidden from ${target}`,
+    inlineDescriptionFor: (target) => `Only ${target} can read it`,
+    inlineDescriptionExcept: (target) => `Everyone except ${target} can read it`,
     secretMessageFor: (target) => `<tg-emoji emoji-id="5884097155341226387">👁</tg-emoji> Secret message for ${target} – <b>tap to read</b>`,
     secretMessageExcept: (target) => `<tg-emoji emoji-id="5884097155341226387">👁</tg-emoji> Secret message (everyone except ${target}) – <b>tap to read</b>`,
     userWithIdTitle: (id) => `user (ID ${id})`,
@@ -44,7 +52,9 @@ secrets expire after 6 hours.
     secretNotForYou: 'This secret is not for you',
     unableToVerify: 'Unable to verify your identity',
     secretSentDM: 'Secret sent to you in a private message',
+    secretDeliveryFailed: 'Could not deliver the full secret. Start the bot and try again.',
     secretAlreadyRead: '<s>Secret message already read</s>',
+    statsUsage: 'usage: /stats YYYY-MM-DD',
     
     readButton: 'Read',
   },
@@ -55,28 +65,30 @@ secrets expire after 6 hours.
 отправляй секретные сообщения, которые смогут прочитать только определённые люди.
 
 <b>как использовать:</b>
-• напиши <code>@${botUsername}</code> в любом чате
+• напиши <code>@${safeBotUsername(botUsername)}</code> в любом чате
 • добавь получателя: <code>@username</code> или id
 • напиши своё секретное сообщение
 
 <b>примеры:</b>
-<code>@${botUsername} @friend привет!</code> — прочитает только @friend
-<code>@${botUsername} секрет @friend</code> — все кроме @friend
+<code>@${safeBotUsername(botUsername)} @friend привет!</code> — прочитает только @friend
+<code>@${safeBotUsername(botUsername)} секрет @friend</code> — все кроме @friend
 
 секреты исчезают через 6 часов.
 
 <code>by @blaar × @club5926</code>`,
     
-    welcomeChooseLang: 'выбери язык:',
     langChanged: 'язык изменён на русский',
     startCooldown: (seconds) => `подожди ${seconds} сек.`,
     
     usageTitle: 'Как отправить секрет?',
     usageHint: () => '<tg-emoji emoji-id="5884097155341226387">👁</tg-emoji> @friend привет — секрет для @friend\n<tg-emoji emoji-id="6032609071373226027">👥</tg-emoji> привет @friend — секрет от @friend',
-    usageText: () => 'укажи username / ID и текст',
     tooLongTitle: 'Слишком длинный: макс. 200 символов',
     tooLongHint: 'Секрет слишком длинный. Максимум 200 символов.',
     invalidTargetHint: () => '<tg-emoji emoji-id="5884097155341226387">👁</tg-emoji> @friend привет — секрет для @friend\n<tg-emoji emoji-id="6032609071373226027">👥</tg-emoji> привет @friend — секрет от @friend',
+    targetUnavailableTitle: 'Не могу проверить получателя',
+    targetUnavailableHint: (target) => `Не могу безопасно проверить ${target}. Попроси пользователя запустить бота или используй числовой ID.`,
+    storageUnavailableTitle: 'Не могу создать секрет',
+    storageUnavailableHint: 'Временное хранилище недоступно. Попробуй позже.',
     
     rateLimitTitle: 'Слишком много запросов',
     rateLimitDescription: (seconds) => `Подождите ${seconds} сек. перед отправкой новых секретов`,
@@ -84,6 +96,8 @@ secrets expire after 6 hours.
     
     whisperTo: (target) => `Секрет для ${target}`,
     hiddenFrom: (target) => `Скрыто от ${target}`,
+    inlineDescriptionFor: (target) => `прочитает только ${target}`,
+    inlineDescriptionExcept: (target) => `прочитают все кроме ${target}`,
     secretMessageFor: (target) => `<tg-emoji emoji-id="5884097155341226387">👁</tg-emoji> Секретное сообщение для ${target} – <b>нажми чтобы прочитать</b>`,
     secretMessageExcept: (target) => `<tg-emoji emoji-id="5884097155341226387">👁</tg-emoji> Секретное сообщение (все кроме ${target}) – <b>нажми чтобы прочитать</b>`,
     userWithIdTitle: (id) => `пользователь (ID ${id})`,
@@ -94,7 +108,9 @@ secrets expire after 6 hours.
     secretNotForYou: 'Этот секрет не для тебя',
     unableToVerify: 'Не удалось подтвердить личность',
     secretSentDM: 'Секрет отправлен тебе в личные сообщения',
+    secretDeliveryFailed: 'Не удалось доставить полный секрет. Запусти бота и попробуй ещё раз.',
     secretAlreadyRead: '<s>Секретное сообщение уже прочитано</s>',
+    statsUsage: 'использование: /stats YYYY-MM-DD',
     
     readButton: 'Прочитать',
   },
@@ -105,28 +121,30 @@ secrets expire after 6 hours.
 надсилай секретні повідомлення, які зможуть прочитати лише певні люди.
 
 <b>як використовувати:</b>
-• напиши <code>@${botUsername}</code> у будь-якому чаті
+• напиши <code>@${safeBotUsername(botUsername)}</code> у будь-якому чаті
 • додай отримувача: <code>@username</code> або id
 • напиши своє секретне повідомлення
 
 <b>приклади:</b>
-<code>@${botUsername} @friend привіт!</code> — прочитає лише @friend
-<code>@${botUsername} секрет @friend</code> — усі крім @friend
+<code>@${safeBotUsername(botUsername)} @friend привіт!</code> — прочитає лише @friend
+<code>@${safeBotUsername(botUsername)} секрет @friend</code> — усі крім @friend
 
 секрети зникають через 6 годин.
 
 <code>by @blaar × @club5926</code>`,
     
-    welcomeChooseLang: 'обери мову:',
     langChanged: 'мову змінено на українську',
     startCooldown: (seconds) => `зачекай ${seconds} сек.`,
     
     usageTitle: 'Як надіслати секрет?',
     usageHint: () => '<tg-emoji emoji-id="5884097155341226387">👁</tg-emoji> @friend привіт — секрет для @friend\n<tg-emoji emoji-id="6032609071373226027">👥</tg-emoji> привіт @friend — секрет від @friend',
-    usageText: () => 'вкажи username / ID та текст',
     tooLongTitle: 'Занадто довгий: макс. 200 символів',
     tooLongHint: 'Секрет занадто довгий. Максимум 200 символів.',
     invalidTargetHint: () => '<tg-emoji emoji-id="5884097155341226387">👁</tg-emoji> @friend привіт — секрет для @friend\n<tg-emoji emoji-id="6032609071373226027">👥</tg-emoji> привіт @friend — секрет від @friend',
+    targetUnavailableTitle: 'Не можу перевірити отримувача',
+    targetUnavailableHint: (target) => `Не можу безпечно перевірити ${target}. Попроси користувача запустити бота або використай числовий ID.`,
+    storageUnavailableTitle: 'Не можу створити секрет',
+    storageUnavailableHint: 'Тимчасове сховище недоступне. Спробуй пізніше.',
     
     rateLimitTitle: 'Забагато запитів',
     rateLimitDescription: (seconds) => `Зачекайте ${seconds} сек. перед надсиланням нових секретів`,
@@ -134,6 +152,8 @@ secrets expire after 6 hours.
     
     whisperTo: (target) => `Секрет для ${target}`,
     hiddenFrom: (target) => `Приховано від ${target}`,
+    inlineDescriptionFor: (target) => `прочитає лише ${target}`,
+    inlineDescriptionExcept: (target) => `прочитають усі крім ${target}`,
     secretMessageFor: (target) => `<tg-emoji emoji-id="5884097155341226387">👁</tg-emoji> Секретне повідомлення для ${target} – <b>натисни щоб прочитати</b>`,
     secretMessageExcept: (target) => `<tg-emoji emoji-id="5884097155341226387">👁</tg-emoji> Секретне повідомлення (всі крім ${target}) – <b>натисни щоб прочитати</b>`,
     userWithIdTitle: (id) => `користувач (ID ${id})`,
@@ -144,7 +164,9 @@ secrets expire after 6 hours.
     secretNotForYou: 'Цей секрет не для тебе',
     unableToVerify: 'Не вдалося підтвердити особу',
     secretSentDM: 'Секрет надіслано тобі в особисті повідомлення',
+    secretDeliveryFailed: 'Не вдалося доставити повний секрет. Запусти бота і спробуй ще раз.',
     secretAlreadyRead: '<s>Секретне повідомлення вже прочитано</s>',
+    statsUsage: 'використання: /stats YYYY-MM-DD',
     
     readButton: 'Прочитати',
   },
@@ -161,7 +183,43 @@ export function detectLang(languageCode) {
 
 export function t(key, lang = DEFAULT_LANG) {
   const langData = translations[lang] || translations[DEFAULT_LANG];
-  return langData[key] || translations[DEFAULT_LANG][key] || key;
+  const value = langData[key] ?? translations[DEFAULT_LANG][key];
+  if (value === undefined) {
+    throw new Error(`Missing translation: ${key}`);
+  }
+  return value;
+}
+
+export function validateTranslations() {
+  const issues = [];
+  const baseEntries = Object.entries(translations[DEFAULT_LANG]);
+  const baseKeys = baseEntries.map(([key]) => key);
+
+  for (const lang of SUPPORTED_LANGS) {
+    const langData = translations[lang];
+    if (!langData) {
+      issues.push(`${lang}: missing language`);
+      continue;
+    }
+
+    for (const [key, baseValue] of baseEntries) {
+      if (!(key in langData)) {
+        issues.push(`${lang}: missing key ${key}`);
+        continue;
+      }
+      if (typeof langData[key] !== typeof baseValue) {
+        issues.push(`${lang}: key ${key} has type ${typeof langData[key]}, expected ${typeof baseValue}`);
+      }
+    }
+
+    for (const key of Object.keys(langData)) {
+      if (!baseKeys.includes(key)) {
+        issues.push(`${lang}: extra key ${key}`);
+      }
+    }
+  }
+
+  return issues;
 }
 
 export { translations, DEFAULT_LANG, SUPPORTED_LANGS };

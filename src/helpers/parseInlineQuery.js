@@ -1,5 +1,7 @@
 const MAX_SECRET_LENGTH = 200;
 const USERNAME_RE = /^[A-Za-z][A-Za-z0-9_]{3,31}$/;
+const USER_ID_RE = /^[1-9]\d{0,20}$/;
+const DEFAULT_BOT_USERNAME = 'YourBot';
 
 export const ParseError = {
   MISSING_ALL: 'missing_all',
@@ -8,14 +10,20 @@ export const ParseError = {
   INVALID_TARGET: 'invalid_target',
 };
 
-let botUsername = 'YourBot';
+let botUsername = DEFAULT_BOT_USERNAME;
+
+export function normalizeBotUsername(username) {
+  if (!username || typeof username !== 'string') return null;
+  const normalized = username.trim().replace(/^@+/, '');
+  return USERNAME_RE.test(normalized) ? normalized : null;
+}
 
 export function setBotUsername(username) {
-  botUsername = username;
+  botUsername = normalizeBotUsername(username) || DEFAULT_BOT_USERNAME;
+  return botUsername;
 }
 
 const getBaseUsage = () => `@${botUsername} @username|ID text`;
-const getUsageText = () => `How to send a whisper? ${getBaseUsage()}`;
 
 export function parseInlineQuery(rawQuery = '') {
   const query = rawQuery.trim();
@@ -32,10 +40,13 @@ export function parseInlineQuery(rawQuery = '') {
 
   const detectTarget = (token) => {
     if (!token) return null;
-    if (/^-?\d+$/.test(token)) {
+    if (/^\d+$/.test(token) && !USER_ID_RE.test(token)) {
+      return null;
+    }
+    if (USER_ID_RE.test(token)) {
       return {
         targetType: 'id',
-        targetNormalized: Number(token),
+        targetNormalized: token,
         targetId: token,
         targetLabel: `ID ${token}`,
         targetRaw: token,
@@ -92,7 +103,5 @@ export function parseInlineQuery(rawQuery = '') {
   };
 }
 
-export const usageText = getUsageText;
-export const baseUsage = getBaseUsage;
 export const getBotUsername = () => botUsername;
 export const maxSecretLength = MAX_SECRET_LENGTH;

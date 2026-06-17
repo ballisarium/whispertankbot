@@ -1,9 +1,10 @@
 import { Markup } from 'telegraf';
-import { getSecret, markConsumed, persistResolvedTargetId } from '../helpers/secrets.js';
+import { consumeSecret, getSecret, restoreSecret } from '../helpers/secrets.js';
 import { t, DEFAULT_LANG } from '../helpers/i18n.js';
 import { trackRead } from '../helpers/stats.js';
+import { maxSecretLength } from '../helpers/parseInlineQuery.js';
 
-const MAX_ALERT_LENGTH = 190;
+const MAX_ALERT_LENGTH = maxSecretLength;
 
 export const AccessRole = {
   NONE: 'none',
@@ -13,36 +14,18 @@ export const AccessRole = {
   ALLOWED_EXCLUDE: 'allowed_exclude',
 };
 
-async function resolveTargetIdForUsername(ctx, username) {
-  if (!username) return null;
-  try {
-    const chat = await ctx.telegram.getChat(`@${username}`);
-    if (chat && chat.type === 'private') {
-      return chat.id;
-    }
-  } catch (err) {
-    console.warn('Could not resolve username to ID during read:', username, err?.message || err);
-  }
-  return null;
-}
-
 function getAccessRole(secret, from) {
   if (!from) return AccessRole.NONE;
   const isAuthor = secret.authorId && Number(from.id) === Number(secret.authorId);
 
   let isTarget = false;
   if (secret.targetType === 'id') {
-    // Direct ID target - check by ID only
-    isTarget = Number(from.id) === Number(secret.targetNormalized);
+    isTarget = String(from.id) === String(secret.targetNormalized);
   } else {
-    // Username target - check by resolved ID (priority) or username (fallback)
     if (secret.resolvedTargetId) {
-      // If ID was resolved at creation time - check by ID
       isTarget = Number(from.id) === Number(secret.resolvedTargetId);
     } else {
-      // Fallback: check by current username
-      isTarget = from.username &&
-        from.username.toLowerCase() === secret.targetNormalized;
+      return isAuthor ? AccessRole.AUTHOR : AccessRole.NONE;
     }
   }
 
@@ -56,6 +39,26 @@ function getAccessRole(secret, from) {
   if (isTarget) return AccessRole.TARGET;
   if (isAuthor) return AccessRole.AUTHOR;
   return AccessRole.BLOCKED;
+}
+
+async function deliverSecret(ctx, secret, lang) {
+  if (secret.secretText.length <= MAX_ALERT_LENGTH) {
+    await ctx.answerCbQuery(secret.secretText, { show_alert: true });
+    return true;
+  }
+
+  try {
+    await ctx.telegram.sendMessage(ctx.from.id, secret.secretText, {
+      disable_notification: true,
+      protect_content: true,
+    });
+    await ctx.answerCbQuery(t('secretSentDM', lang), { show_alert: true });
+    return true;
+  } catch (err) {
+    console.warn('Failed to DM secret', err?.message || err);
+    await ctx.answerCbQuery(t('secretDeliveryFailed', lang), { show_alert: true });
+    return false;
+  }
 }
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -77,17 +80,6 @@ export async function handleReadCallback(ctx) {
     return;
   }
 
-  if (secret.targetType === 'username' && !secret.resolvedTargetId) {
-    const fromUsername = ctx.from?.username?.toLowerCase();
-    if (!fromUsername || fromUsername !== secret.targetNormalized) {
-      const resolvedTargetId = await resolveTargetIdForUsername(ctx, secret.targetNormalized);
-      if (resolvedTargetId) {
-        secret.resolvedTargetId = resolvedTargetId;
-        await persistResolvedTargetId(secretId, secret, resolvedTargetId);
-      }
-    }
-  }
-
   const role = getAccessRole(secret, ctx.from);
   const isExcludeMode = secret.targetPosition === 'back';
   
@@ -103,29 +95,30 @@ export async function handleReadCallback(ctx) {
     return;
   }
 
-  let delivered = false;
-  if (secret.secretText.length <= MAX_ALERT_LENGTH) {
-    await ctx.answerCbQuery(secret.secretText, { show_alert: true });
-    delivered = true;
-  } else {
-    try {
-      await ctx.telegram.sendMessage(ctx.from.id, secret.secretText, {
-        disable_notification: true,
-        protect_content: true,
-      });
-      await ctx.answerCbQuery(t('secretSentDM', lang), { show_alert: true });
-      delivered = true;
-    } catch (err) {
-      console.warn('Failed to DM secret; showing truncated text instead', err);
-      const trimmed = `${secret.secretText.slice(0, MAX_ALERT_LENGTH - 3)}...`;
-      await ctx.answerCbQuery(trimmed, { show_alert: true });
-      delivered = true;
+  if (!isExcludeMode && role === AccessRole.TARGET) {
+    const consumed = await consumeSecret(secretId);
+    if (!consumed) {
+      await trackRead({ outcome: 'expired' });
+      await ctx.answerCbQuery(t('secretNotFound', lang), { show_alert: false });
+      return;
     }
-  }
 
-  if (!isExcludeMode && role === AccessRole.TARGET && delivered) {
+    const consumedSecret = consumed.secret;
+    const consumedRole = getAccessRole(consumedSecret, ctx.from);
+    if (consumedRole !== AccessRole.TARGET) {
+      await restoreSecret(secretId, consumedSecret, consumed.ttlMs);
+      await trackRead({ outcome: 'blocked' });
+      await ctx.answerCbQuery(t('secretNotForYou', lang), { show_alert: false });
+      return;
+    }
+
+    const delivered = await deliverSecret(ctx, consumedSecret, lang);
+    if (!delivered) {
+      await restoreSecret(secretId, consumedSecret, consumed.ttlMs);
+      return;
+    }
+
     await trackRead({ outcome: 'delivered' });
-    await markConsumed(secretId);
     try {
       await ctx.editMessageText(t('secretAlreadyRead', lang), {
         parse_mode: 'HTML',
@@ -137,6 +130,7 @@ export async function handleReadCallback(ctx) {
     return;
   }
 
+  const delivered = await deliverSecret(ctx, secret, lang);
   if (delivered) {
     await trackRead({ outcome: 'delivered' });
   }

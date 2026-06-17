@@ -1,36 +1,33 @@
 import { getRedisClient } from './secrets.js';
+import { formatDateInTimezone, validateTimezone } from './config.js';
+import { escapeHtml } from './html.js';
 
 const STATS_PREFIX = 'whisper:stats:';
 const STATS_TTL_DAYS = 40;
 const STATS_TTL_MS = STATS_TTL_DAYS * 24 * 60 * 60 * 1000;
-const DEFAULT_TIMEZONE = process.env.STATS_TIMEZONE || 'UTC';
+const DEFAULT_TIMEZONE = validateTimezone(process.env.STATS_TIMEZONE || 'UTC');
 const BUCKET_SIZE = 20;
 const MAX_BUCKET = 200;
 
 let statsTimezone = DEFAULT_TIMEZONE;
+let statsEnabled = process.env.STATS_ENABLED === 'true';
 
 const memoryStats = new Map();
 
-const formatDateInTimezone = (date = new Date(), timezone = statsTimezone) => {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date);
-  const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
-  return `${map.year}-${map.month}-${map.day}`;
+export const setStatsEnabled = (enabled) => {
+  statsEnabled = enabled === true || enabled === 'true';
 };
 
+export const getStatsEnabled = () => statsEnabled;
+
 export const setStatsTimezone = (timezone) => {
-  if (timezone) {
-    statsTimezone = timezone;
-  }
+  statsTimezone = validateTimezone(timezone || DEFAULT_TIMEZONE);
+  return statsTimezone;
 };
 
 export const getStatsTimezone = () => statsTimezone;
 
-const getDateString = (dateOverride) => formatDateInTimezone(dateOverride || new Date());
+const getDateString = (dateOverride) => formatDateInTimezone(dateOverride || new Date(), statsTimezone);
 
 const buildHashKey = (dateStr) => `${STATS_PREFIX}${dateStr}:counters`;
 const buildAuthorsKey = (dateStr) => `${STATS_PREFIX}${dateStr}:authors`;
@@ -112,6 +109,15 @@ const recordChatTypeMemory = (chatMap, chatType) => {
   incMap(chatMap, normalized, 1);
 };
 
+const runStatsOperation = async (operation, label) => {
+  if (!statsEnabled) return;
+  try {
+    await operation();
+  } catch (err) {
+    console.error(`Stats ${label} failed`, err);
+  }
+};
+
 export async function trackMessage({
   dateString,
   authorId,
@@ -120,102 +126,100 @@ export async function trackMessage({
   secretTextLength = 0,
   chatType,
 } = {}) {
-  const dateStr = dateString || getDateString();
-  const redis = getRedisClient();
-  const isExcludeMode = targetPosition === 'back';
-  const length = clampLength(secretTextLength);
+  await runStatsOperation(async () => {
+    const dateStr = dateString || getDateString();
+    const redis = getRedisClient();
+    const isExcludeMode = targetPosition === 'back';
+    const length = clampLength(secretTextLength);
 
-  if (redis) {
-    const hashKey = buildHashKey(dateStr);
-    const authorsKey = buildAuthorsKey(dateStr);
-    const targetsKey = buildTargetsKey(dateStr);
-    const multi = redis.multi();
+    if (redis) {
+      const hashKey = buildHashKey(dateStr);
+      const authorsKey = buildAuthorsKey(dateStr);
+      const targetsKey = buildTargetsKey(dateStr);
+      const multi = redis.multi();
 
-    incHashField(multi, hashKey, 'total_messages', 1);
-    if (isExcludeMode) {
-      incHashField(multi, hashKey, 'mode_except', 1);
-    } else {
-      incHashField(multi, hashKey, 'mode_for', 1);
+      incHashField(multi, hashKey, 'total_messages', 1);
+      incHashField(multi, hashKey, isExcludeMode ? 'mode_except' : 'mode_for', 1);
+      incHashField(multi, hashKey, 'sum_len', length);
+      recordChatTypeRedis(multi, hashKey, chatType);
+      recordHistogramRedis(multi, hashKey, length);
+
+      if (authorId !== undefined && authorId !== null) {
+        multi.pfadd(authorsKey, String(authorId));
+        applyTTL(multi, authorsKey);
+      }
+      if (targetNormalized !== undefined && targetNormalized !== null) {
+        multi.pfadd(targetsKey, String(targetNormalized));
+        applyTTL(multi, targetsKey);
+      }
+
+      applyTTL(multi, hashKey);
+      await multi.exec();
+      return;
     }
-    incHashField(multi, hashKey, 'sum_len', length);
-    recordChatTypeRedis(multi, hashKey, chatType);
-    recordHistogramRedis(multi, hashKey, length);
 
+    cleanupMemoryStats();
+    const entry = ensureMemoryEntry(dateStr);
+    incMap(entry.counters, 'total_messages', 1);
+    incMap(entry.counters, isExcludeMode ? 'mode_except' : 'mode_for', 1);
+    incMap(entry.counters, 'sum_len', length);
+    recordChatTypeMemory(entry.chat, chatType);
+    recordHistogramMemory(entry.histogram, length);
     if (authorId !== undefined && authorId !== null) {
-      multi.pfadd(authorsKey, String(authorId));
-      applyTTL(multi, authorsKey);
+      entry.authors.add(String(authorId));
     }
     if (targetNormalized !== undefined && targetNormalized !== null) {
-      multi.pfadd(targetsKey, String(targetNormalized));
-      applyTTL(multi, targetsKey);
+      entry.targets.add(String(targetNormalized));
+    }
+  }, 'message tracking');
+}
+
+export async function trackError({ dateString, type } = {}) {
+  await runStatsOperation(async () => {
+    const dateStr = dateString || getDateString();
+    const redis = getRedisClient();
+    const field =
+      type === 'parse' ? 'errors_parse' : type === 'rate_limit' ? 'errors_rate_limit' : 'errors_other';
+
+    if (redis) {
+      const hashKey = buildHashKey(dateStr);
+      const multi = redis.multi();
+      incHashField(multi, hashKey, field, 1);
+      applyTTL(multi, hashKey);
+      await multi.exec();
+      return;
     }
 
-    applyTTL(multi, hashKey);
-    await multi.exec();
-    return;
-  }
-
-  cleanupMemoryStats();
-  const entry = ensureMemoryEntry(dateStr);
-  incMap(entry.counters, 'total_messages', 1);
-  if (isExcludeMode) {
-    incMap(entry.counters, 'mode_except', 1);
-  } else {
-    incMap(entry.counters, 'mode_for', 1);
-  }
-  incMap(entry.counters, 'sum_len', length);
-  recordChatTypeMemory(entry.chat, chatType);
-  recordHistogramMemory(entry.histogram, length);
-  if (authorId !== undefined && authorId !== null) {
-    entry.authors.add(String(authorId));
-  }
-  if (targetNormalized !== undefined && targetNormalized !== null) {
-    entry.targets.add(String(targetNormalized));
-  }
+    cleanupMemoryStats();
+    const entry = ensureMemoryEntry(dateStr);
+    incMap(entry.counters, field, 1);
+  }, 'error tracking');
 }
 
-export async function trackError({ dateString, type }) {
-  const dateStr = dateString || getDateString();
-  const redis = getRedisClient();
-  const field =
-    type === 'parse' ? 'errors_parse' : type === 'rate_limit' ? 'errors_rate_limit' : 'errors_other';
+export async function trackRead({ dateString, outcome } = {}) {
+  await runStatsOperation(async () => {
+    const dateStr = dateString || getDateString();
+    const redis = getRedisClient();
+    const field =
+      outcome === 'delivered'
+        ? 'reads_delivered'
+        : outcome === 'blocked'
+          ? 'reads_blocked'
+          : 'reads_expired';
 
-  if (redis) {
-    const hashKey = buildHashKey(dateStr);
-    const multi = redis.multi();
-    incHashField(multi, hashKey, field, 1);
-    applyTTL(multi, hashKey);
-    await multi.exec();
-    return;
-  }
+    if (redis) {
+      const hashKey = buildHashKey(dateStr);
+      const multi = redis.multi();
+      incHashField(multi, hashKey, field, 1);
+      applyTTL(multi, hashKey);
+      await multi.exec();
+      return;
+    }
 
-  cleanupMemoryStats();
-  const entry = ensureMemoryEntry(dateStr);
-  incMap(entry.counters, field, 1);
-}
-
-export async function trackRead({ dateString, outcome }) {
-  const dateStr = dateString || getDateString();
-  const redis = getRedisClient();
-  const field =
-    outcome === 'delivered'
-      ? 'reads_delivered'
-      : outcome === 'blocked'
-        ? 'reads_blocked'
-        : 'reads_expired';
-
-  if (redis) {
-    const hashKey = buildHashKey(dateStr);
-    const multi = redis.multi();
-    incHashField(multi, hashKey, field, 1);
-    applyTTL(multi, hashKey);
-    await multi.exec();
-    return;
-  }
-
-  cleanupMemoryStats();
-  const entry = ensureMemoryEntry(dateStr);
-  incMap(entry.counters, field, 1);
+    cleanupMemoryStats();
+    const entry = ensureMemoryEntry(dateStr);
+    incMap(entry.counters, field, 1);
+  }, 'read tracking');
 }
 
 const parseIntSafe = (value) => {
@@ -271,19 +275,19 @@ const getRedisDailyStats = async (dateStr, redis) => {
   };
 };
 
+const emptyStats = (dateStr) => ({
+  date: dateStr,
+  counters: {},
+  chatTypes: {},
+  histogram: {},
+  unique_authors: 0,
+  unique_targets: 0,
+});
+
 const getMemoryDailyStats = (dateStr) => {
   cleanupMemoryStats();
   const entry = memoryStats.get(dateStr);
-  if (!entry) {
-    return {
-      date: dateStr,
-      counters: {},
-      chatTypes: {},
-      histogram: {},
-      unique_authors: 0,
-      unique_targets: 0,
-    };
-  }
+  if (!entry) return emptyStats(dateStr);
 
   const counters = Object.fromEntries(entry.counters.entries());
   const chatTypes = Object.fromEntries(entry.chat.entries());
@@ -303,7 +307,11 @@ export async function getDailyStats(dateString) {
   const dateStr = dateString || getDateString();
   const redis = getRedisClient();
   if (redis) {
-    return getRedisDailyStats(dateStr, redis);
+    try {
+      return await getRedisDailyStats(dateStr, redis);
+    } catch (err) {
+      console.error('Failed to read Redis stats; falling back to memory stats', err);
+    }
   }
   return getMemoryDailyStats(dateStr);
 }
@@ -333,11 +341,7 @@ function computePercentiles(histogram = {}, percentiles = [0.5, 0.9]) {
     for (const [bucket, count] of buckets) {
       cumulative += count;
       if (cumulative >= target) {
-        if (bucket.startsWith('gt')) {
-          value = MAX_BUCKET + BUCKET_SIZE;
-        } else {
-          value = Number(bucket) + BUCKET_SIZE;
-        }
+        value = bucket.startsWith('gt') ? MAX_BUCKET + BUCKET_SIZE : Number(bucket) + BUCKET_SIZE;
         break;
       }
     }
@@ -355,7 +359,7 @@ function formatChatTypes(chatTypes = {}) {
   if (!entries.length) return '—';
   return entries
     .sort((a, b) => Number(b[1]) - Number(a[1]))
-    .map(([k, v]) => `${k}: ${v}`)
+    .map(([k, v]) => `${escapeHtml(k)}: ${v}`)
     .join(', ');
 }
 
@@ -390,7 +394,7 @@ export async function buildDailyReport(dateString) {
   const chatTypesText = formatChatTypes(chatTypes);
 
   const lines = [
-    `<b>whisper daily — ${date}</b>`,
+    `<b>whisper daily — ${escapeHtml(date)}</b>`,
     `total: ${total} (for: ${modeFor}, except: ${modeExcept})`,
     `unique authors: ${unique_authors}; unique targets: ${unique_targets}`,
     `lengths: avg ${avgLen}; p50 ${p50}; p90 ${p90}`,
@@ -412,4 +416,10 @@ export async function sendDailyReport(bot, adminIds = [], dateString) {
       console.error(`Failed to send stats to admin ${adminId}`, err);
     }
   }
+}
+
+export function resetStatsForTests() {
+  memoryStats.clear();
+  statsTimezone = DEFAULT_TIMEZONE;
+  statsEnabled = false;
 }

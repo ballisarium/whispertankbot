@@ -5,30 +5,15 @@ import { checkRateLimit, RateLimitResult } from '../helpers/rateLimit.js';
 import { detectLang, t } from '../helpers/i18n.js';
 import { getUserLang } from '../helpers/userSettings.js';
 import { trackError, trackMessage } from '../helpers/stats.js';
+import { escapeHtml } from '../helpers/html.js';
 
 function buildInlineKeyboard(secretId, lang) {
   return Markup.inlineKeyboard([[Markup.button.callback(t('readButton', lang), `read:${secretId}`)]])
     .reply_markup;
 }
 
-const escapeHtml = (text = '') =>
-  text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-
 const stripTgEmoji = (text = '') =>
   text.replace(/<tg-emoji[^>]*>([^<]*)<\/tg-emoji>/g, '$1');
-
-const getDisplayName = (chat) => {
-  if (!chat || chat.type !== 'private') return null;
-  const fullName = [chat.first_name, chat.last_name].filter(Boolean).join(' ').trim();
-  if (fullName) return fullName;
-  if (chat.username) return `@${chat.username}`;
-  return null;
-};
 
 async function resolveTargetLabels(ctx, parsed, lang) {
   if (parsed.targetType === 'username') {
@@ -69,6 +54,23 @@ async function resolveTargetLabels(ctx, parsed, lang) {
   return { titleLabel, messageLabel };
 }
 
+const answerSingleResult = (ctx, result) =>
+  ctx.answerInlineQuery([result], { is_personal: true, cache_time: 0 });
+
+function buildMessageResult({ id, title, description, messageText, replyMarkup }) {
+  return {
+    type: 'article',
+    id,
+    title,
+    description: stripTgEmoji(description),
+    input_message_content: {
+      message_text: messageText,
+      parse_mode: 'HTML',
+    },
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+  };
+}
+
 export async function handleInlineQuery(ctx) {
   const { inlineQuery } = ctx;
   const chatType = inlineQuery?.chat_type;
@@ -76,6 +78,22 @@ export async function handleInlineQuery(ctx) {
   const savedLang = await getUserLang(authorId);
   const lang = savedLang || detectLang(inlineQuery?.from?.language_code);
   const botUsername = getBotUsername();
+
+  const rateCheck = await checkRateLimit(authorId, true);
+  if (rateCheck.result === RateLimitResult.BLOCKED) {
+    await trackError({ type: 'rate_limit' });
+    await answerSingleResult(ctx, {
+      type: 'article',
+      id: 'rate_limited',
+      title: t('rateLimitTitle', lang),
+      description: t('rateLimitDescription', lang)(rateCheck.retryAfter),
+      input_message_content: {
+        message_text: t('rateLimitMessage', lang)(rateCheck.retryAfter),
+      },
+    });
+    return;
+  }
+
   const parsed = parseInlineQuery(inlineQuery?.query || '');
 
   if (parsed.error) {
@@ -91,8 +109,7 @@ export async function handleInlineQuery(ctx) {
       title = t('usageTitle', lang);
       hint = t('usageHint', lang)(botUsername);
     }
-    const results = [
-      {
+    await answerSingleResult(ctx, {
         type: 'article',
         id: 'usage',
         title,
@@ -101,34 +118,10 @@ export async function handleInlineQuery(ctx) {
           message_text: hint,
           parse_mode: 'HTML',
         },
-      },
-    ];
-    await ctx.answerInlineQuery(results, { is_personal: true, cache_time: 0 });
+    });
     return;
   }
 
-  const rateCheck = checkRateLimit(authorId, false);
-  if (rateCheck.result === RateLimitResult.BLOCKED) {
-    await trackError({ type: 'rate_limit' });
-    const results = [
-      {
-        type: 'article',
-        id: 'rate_limited',
-        title: t('rateLimitTitle', lang),
-        description: t('rateLimitDescription', lang)(rateCheck.retryAfter),
-        input_message_content: {
-          message_text: t('rateLimitMessage', lang)(rateCheck.retryAfter),
-        },
-      },
-    ];
-    await ctx.answerInlineQuery(results, { is_personal: true, cache_time: 0 });
-    return;
-  }
-
-  checkRateLimit(authorId, true);
-  const { titleLabel, messageLabel } = await resolveTargetLabels(ctx, parsed, lang);
-
-  // Try to resolve username to ID for reliable matching across multiple usernames
   let resolvedTargetId = null;
   if (parsed.targetType === 'username') {
     try {
@@ -137,12 +130,39 @@ export async function handleInlineQuery(ctx) {
         resolvedTargetId = chat.id;
       }
     } catch (err) {
-      // Could not resolve - user is unknown to the bot, continue without ID
-      console.warn('Could not resolve username to ID:', parsed.targetUsername);
+      console.warn('Could not resolve username to ID:', parsed.targetUsername, err?.message || err);
+    }
+
+    if (!resolvedTargetId) {
+      await trackError({ type: 'target_resolve' });
+      const safeTarget = `@${escapeHtml(parsed.targetUsername)}`;
+      await answerSingleResult(ctx, buildMessageResult({
+        id: 'target_unavailable',
+        title: t('targetUnavailableTitle', lang),
+        description: t('targetUnavailableHint', lang)(safeTarget),
+        messageText: t('targetUnavailableHint', lang)(safeTarget),
+      }));
+      return;
     }
   }
 
-  const secretId = await createSecret({ ...parsed, chatType, authorId, lang, targetLabel: titleLabel, resolvedTargetId });
+  const { titleLabel, messageLabel } = await resolveTargetLabels(ctx, parsed, lang);
+
+  let secretId;
+  try {
+    secretId = await createSecret({ ...parsed, chatType, authorId, lang, targetLabel: titleLabel, resolvedTargetId });
+  } catch (err) {
+    console.error('Failed to create secret', err);
+    await trackError({ type: 'storage' });
+    await answerSingleResult(ctx, buildMessageResult({
+      id: 'storage_unavailable',
+      title: t('storageUnavailableTitle', lang),
+      description: t('storageUnavailableHint', lang),
+      messageText: t('storageUnavailableHint', lang),
+    }));
+    return;
+  }
+
   await trackMessage({
     authorId,
     targetNormalized: parsed.targetNormalized,
@@ -151,15 +171,13 @@ export async function handleInlineQuery(ctx) {
     chatType,
   });
 
-  const preview =
-    parsed.secretText.length > 80
-      ? `${parsed.secretText.slice(0, 77)}...`
-      : parsed.secretText;
-
   const isExcludeMode = parsed.targetPosition === 'back';
   const messageText = isExcludeMode
     ? t('secretMessageExcept', lang)(messageLabel)
     : t('secretMessageFor', lang)(messageLabel);
+  const description = isExcludeMode
+    ? t('inlineDescriptionExcept', lang)(titleLabel)
+    : t('inlineDescriptionFor', lang)(titleLabel);
 
   const results = [
     {
@@ -168,7 +186,7 @@ export async function handleInlineQuery(ctx) {
       title: isExcludeMode 
         ? t('hiddenFrom', lang)(titleLabel) 
         : t('whisperTo', lang)(titleLabel),
-      description: preview,
+      description,
       input_message_content: {
         message_text: messageText,
         parse_mode: 'HTML',

@@ -2,6 +2,7 @@ import { Markup } from 'telegraf';
 import { detectLang, t } from '../helpers/i18n.js';
 import { getUserLang, setUserLang, checkStartCooldown } from '../helpers/userSettings.js';
 import { getBotUsername } from '../helpers/parseInlineQuery.js';
+import { isValidDateString } from '../helpers/config.js';
 
 function buildLangKeyboard() {
   return Markup.inlineKeyboard([
@@ -44,6 +45,11 @@ export async function handleStatsCommand(ctx, isAdmin, buildReport) {
     return;
   }
   const dateStr = ctx.message?.text?.split(' ')?.[1];
+  if (dateStr && !isValidDateString(dateStr)) {
+    const userLang = await getUserLang(ctx.from?.id) || detectLang(ctx.from?.language_code);
+    await ctx.reply(t('statsUsage', userLang));
+    return;
+  }
   const report = await buildReport(dateStr);
   await ctx.reply(report, { parse_mode: 'HTML', disable_web_page_preview: true });
 }

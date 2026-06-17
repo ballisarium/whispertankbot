@@ -1,2 +1,6 @@
 node_modules/
 .env
+/AGENTS.md
+/agents.md
+/AUDIT.md
+/audit.md
