@@ -22,6 +22,8 @@ secrets expire after 6 hours.
 <code>by @blaar × @club5926</code>`,
     
     langChanged: 'language changed to english',
+    changeLanguage: '🌐 change language',
+    back: '← back',
     startCooldown: (seconds) => `please wait ${seconds}s`,
     
     usageTitle: 'How to send a whisper?',
@@ -98,6 +100,8 @@ secrets expire after 6 hours.
 <code>by @blaar × @club5926</code>`,
     
     langChanged: 'язык изменён на русский',
+    changeLanguage: '🌐 сменить язык',
+    back: '← назад',
     startCooldown: (seconds) => `подожди ${seconds} сек.`,
     
     usageTitle: 'Как отправить секрет?',
@@ -174,6 +178,8 @@ secrets expire after 6 hours.
 <code>by @blaar × @club5926</code>`,
     
     langChanged: 'мову змінено на українську',
+    changeLanguage: '🌐 змінити мову',
+    back: '← назад',
     startCooldown: (seconds) => `зачекай ${seconds} сек.`,
     
     usageTitle: 'Як надіслати секрет?',

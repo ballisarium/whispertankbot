@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { Telegraf } from 'telegraf';
 import { handleInlineQuery } from './handlers/inline.js';
 import { handleReadCallback } from './handlers/callback.js';
-import { handleStart, handleLangCallback, handleStatsCommand } from './handlers/start.js';
+import { handleStart, handleLangCallback, handleMenuCallback, handleStatsCommand } from './handlers/start.js';
 import { getBotUsername, normalizeBotUsername, setBotUsername } from './helpers/parseInlineQuery.js';
 import { shutdown as shutdownSecrets } from './helpers/secrets.js';
 import { shutdownRateLimit } from './helpers/rateLimit.js';
@@ -45,6 +45,7 @@ bot.catch((err, ctx) => {
 
 bot.start(handleStart);
 bot.action(/^lang:(.+)$/, handleLangCallback);
+bot.action(/^menu:(.+)$/, handleMenuCallback);
 bot.on('inline_query', handleInlineQuery);
 bot.action(/^read:(.+)$/, handleReadCallback);
 bot.command('stats', async (ctx) => {
