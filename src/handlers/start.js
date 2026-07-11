@@ -89,9 +89,10 @@ export async function handleMenuCallback(ctx) {
   const action = ctx.match?.[1];
   const lang = await getUserLang(ctx.from?.id) || detectLang(ctx.from?.language_code);
   const botUsername = getBotUsername();
-  const message = t('welcomeMessage', lang)(botUsername);
 
-  const keyboard = action === 'lang' ? buildLangKeyboard(lang) : buildMainKeyboard(lang);
+  const isLangMenu = action === 'lang';
+  const message = isLangMenu ? t('chooseLanguage', lang) : t('welcomeMessage', lang)(botUsername);
+  const keyboard = isLangMenu ? buildLangKeyboard(lang) : buildMainKeyboard(lang);
 
   try {
     await ctx.editMessageText(message, {
