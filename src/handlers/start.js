@@ -40,17 +40,17 @@ export async function handleStart(ctx) {
 }
 
 export async function handleStatsCommand(ctx, isAdmin, buildReport) {
+  const userLang = await getUserLang(ctx.from?.id) || detectLang(ctx.from?.language_code);
   if (!isAdmin) {
-    await ctx.reply('for admins only');
+    await ctx.reply(t('statsAdminOnly', userLang));
     return;
   }
   const dateStr = ctx.message?.text?.split(' ')?.[1];
   if (dateStr && !isValidDateString(dateStr)) {
-    const userLang = await getUserLang(ctx.from?.id) || detectLang(ctx.from?.language_code);
     await ctx.reply(t('statsUsage', userLang));
     return;
   }
-  const report = await buildReport(dateStr);
+  const report = await buildReport(dateStr, userLang);
   await ctx.reply(report, { parse_mode: 'HTML', disable_web_page_preview: true });
 }
 

@@ -55,6 +55,26 @@ secrets expire after 6 hours.
     secretDeliveryFailed: 'Could not deliver the full secret. Start the bot and try again.',
     secretAlreadyRead: '<s>Secret message already read</s>',
     statsUsage: 'usage: /stats YYYY-MM-DD',
+    statsAdminOnly: 'This command is for admins only.',
+    statsReport: (d) => {
+      const labels = { private: 'DM', group: 'groups', supergroup: 'supergroups', channel: 'channels', unknown: 'other' };
+      const trend = d.hasPrev ? (d.delta > 0 ? ` (▲ +${d.delta})` : d.delta < 0 ? ` (▼ ${d.delta})` : ' (▬ 0)') : '';
+      const chat = d.chatEntries.length ? d.chatEntries.map(([k, c]) => `${labels[k] || k} ${c}`).join(' · ') : '—';
+      return [
+        `📊 <b>Whisper — ${d.date}</b>`,
+        ``,
+        `✉️ Secrets created: <b>${d.total}</b>${trend}`,
+        `   • for recipient: ${d.modeFor} · except recipient: ${d.modeExcept}`,
+        `👤 Unique authors: ${d.authors} · recipients: ${d.targets}`,
+        ``,
+        `👀 Reads: <b>${d.delivered}</b> delivered${d.readsTotal ? ` (${d.successPct}% of ${d.readsTotal} attempts)` : ''}`,
+        `   • blocked ${d.blocked} · expired ${d.expired}`,
+        ``,
+        `📝 Length: avg ${d.avgLen} chars · median ~${d.median}`,
+        `💬 Chats: ${chat}`,
+        `⚠️ Errors: ${d.errTotal} (parse ${d.errParse} · rate limit ${d.errRate} · other ${d.errOther})`,
+      ].join('\n');
+    },
     
     readButton: 'Read',
   },
@@ -111,6 +131,26 @@ secrets expire after 6 hours.
     secretDeliveryFailed: 'Не удалось доставить полный секрет. Запусти бота и попробуй ещё раз.',
     secretAlreadyRead: '<s>Секретное сообщение уже прочитано</s>',
     statsUsage: 'использование: /stats YYYY-MM-DD',
+    statsAdminOnly: 'Команда доступна только администраторам.',
+    statsReport: (d) => {
+      const labels = { private: 'личка', group: 'группы', supergroup: 'супергруппы', channel: 'каналы', unknown: 'прочее' };
+      const trend = d.hasPrev ? (d.delta > 0 ? ` (▲ +${d.delta})` : d.delta < 0 ? ` (▼ ${d.delta})` : ' (▬ 0)') : '';
+      const chat = d.chatEntries.length ? d.chatEntries.map(([k, c]) => `${labels[k] || k} ${c}`).join(' · ') : '—';
+      return [
+        `📊 <b>Whisper — ${d.date}</b>`,
+        ``,
+        `✉️ Секретов создано: <b>${d.total}</b>${trend}`,
+        `   • для получателя: ${d.modeFor} · кроме получателя: ${d.modeExcept}`,
+        `👤 Уникальных авторов: ${d.authors} · получателей: ${d.targets}`,
+        ``,
+        `👀 Прочтений: <b>${d.delivered}</b> доставлено${d.readsTotal ? ` (${d.successPct}% из ${d.readsTotal} попыток)` : ''}`,
+        `   • заблокировано ${d.blocked} · истекло ${d.expired}`,
+        ``,
+        `📝 Длина: в среднем ${d.avgLen} симв. · медиана ~${d.median}`,
+        `💬 Чаты: ${chat}`,
+        `⚠️ Ошибки: ${d.errTotal} (разбор ${d.errParse} · лимит ${d.errRate} · прочие ${d.errOther})`,
+      ].join('\n');
+    },
     
     readButton: 'Прочитать',
   },
@@ -167,6 +207,26 @@ secrets expire after 6 hours.
     secretDeliveryFailed: 'Не вдалося доставити повний секрет. Запусти бота і спробуй ще раз.',
     secretAlreadyRead: '<s>Секретне повідомлення вже прочитано</s>',
     statsUsage: 'використання: /stats YYYY-MM-DD',
+    statsAdminOnly: 'Команда доступна лише адміністраторам.',
+    statsReport: (d) => {
+      const labels = { private: 'особисті', group: 'групи', supergroup: 'супергрупи', channel: 'канали', unknown: 'інше' };
+      const trend = d.hasPrev ? (d.delta > 0 ? ` (▲ +${d.delta})` : d.delta < 0 ? ` (▼ ${d.delta})` : ' (▬ 0)') : '';
+      const chat = d.chatEntries.length ? d.chatEntries.map(([k, c]) => `${labels[k] || k} ${c}`).join(' · ') : '—';
+      return [
+        `📊 <b>Whisper — ${d.date}</b>`,
+        ``,
+        `✉️ Секретів створено: <b>${d.total}</b>${trend}`,
+        `   • для отримувача: ${d.modeFor} · окрім отримувача: ${d.modeExcept}`,
+        `👤 Унікальних авторів: ${d.authors} · отримувачів: ${d.targets}`,
+        ``,
+        `👀 Прочитань: <b>${d.delivered}</b> доставлено${d.readsTotal ? ` (${d.successPct}% з ${d.readsTotal} спроб)` : ''}`,
+        `   • заблоковано ${d.blocked} · протерміновано ${d.expired}`,
+        ``,
+        `📝 Довжина: у середньому ${d.avgLen} симв. · медіана ~${d.median}`,
+        `💬 Чати: ${chat}`,
+        `⚠️ Помилки: ${d.errTotal} (розбір ${d.errParse} · ліміт ${d.errRate} · інші ${d.errOther})`,
+      ].join('\n');
+    },
     
     readButton: 'Прочитати',
   },

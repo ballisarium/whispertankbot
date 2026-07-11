@@ -1,6 +1,8 @@
 import { getRedisClient } from './secrets.js';
 import { formatDateInTimezone, validateTimezone } from './config.js';
 import { escapeHtml } from './html.js';
+import { t, DEFAULT_LANG } from './i18n.js';
+import { getUserLang } from './userSettings.js';
 
 const STATS_PREFIX = 'whisper:stats:';
 const STATS_TTL_DAYS = 40;
@@ -350,20 +352,16 @@ function computePercentiles(histogram = {}, percentiles = [0.5, 0.9]) {
   return results;
 }
 
-function formatNumber(value) {
-  return Number.isFinite(value) ? String(Math.round(value)) : '0';
-}
+const previousDateStr = (dateStr) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ''));
+  if (!m) return null;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  d.setUTCDate(d.getUTCDate() - 1);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+};
 
-function formatChatTypes(chatTypes = {}) {
-  const entries = Object.entries(chatTypes).filter(([, v]) => Number(v) > 0);
-  if (!entries.length) return '—';
-  return entries
-    .sort((a, b) => Number(b[1]) - Number(a[1]))
-    .map(([k, v]) => `${escapeHtml(k)}: ${v}`)
-    .join(', ');
-}
-
-export async function buildDailyReport(dateString) {
+export async function buildDailyReport(dateString, lang = DEFAULT_LANG) {
   const stats = await getDailyStats(dateString);
   const {
     counters = {},
@@ -375,42 +373,60 @@ export async function buildDailyReport(dateString) {
   } = stats;
 
   const total = counters.total_messages || 0;
-  const modeFor = counters.mode_for || 0;
-  const modeExcept = counters.mode_except || 0;
+
+  const prevDate = previousDateStr(date);
+  const prevStats = prevDate ? await getDailyStats(prevDate) : null;
+  const prevTotal = prevStats?.counters?.total_messages || 0;
+
+  const delivered = counters.reads_delivered || 0;
+  const blocked = counters.reads_blocked || 0;
+  const expired = counters.reads_expired || 0;
+  const readsTotal = delivered + blocked + expired;
+
   const sumLen = counters.sum_len || 0;
   const avgLen = total > 0 ? Math.round(sumLen / total) : 0;
-  const percentiles = computePercentiles(histogram, [0.5, 0.9]);
-  const p50 = formatNumber(percentiles[0.5]);
-  const p90 = formatNumber(percentiles[0.9]);
+  const medianValue = computePercentiles(histogram, [0.5])[0.5] || 0;
+  const median = medianValue > MAX_BUCKET ? `${MAX_BUCKET}+` : String(medianValue);
 
-  const errorsParse = counters.errors_parse || 0;
-  const errorsRate = counters.errors_rate_limit || 0;
-  const errorsOther = counters.errors_other || 0;
+  const chatEntries = Object.entries(chatTypes)
+    .map(([k, v]) => [k, Number(v) || 0])
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1]);
 
-  const readsDelivered = counters.reads_delivered || 0;
-  const readsBlocked = counters.reads_blocked || 0;
-  const readsExpired = counters.reads_expired || 0;
+  const errParse = counters.errors_parse || 0;
+  const errRate = counters.errors_rate_limit || 0;
+  const errOther = counters.errors_other || 0;
 
-  const chatTypesText = formatChatTypes(chatTypes);
-
-  const lines = [
-    `<b>whisper daily — ${escapeHtml(date)}</b>`,
-    `total: ${total} (for: ${modeFor}, except: ${modeExcept})`,
-    `unique authors: ${unique_authors}; unique targets: ${unique_targets}`,
-    `lengths: avg ${avgLen}; p50 ${p50}; p90 ${p90}`,
-    `chat types: ${chatTypesText}`,
-    `reads: delivered ${readsDelivered}; blocked ${readsBlocked}; expired ${readsExpired}`,
-    `errors: parse ${errorsParse}; rate ${errorsRate}; other ${errorsOther}`,
-  ];
-
-  return lines.join('\n');
+  return t('statsReport', lang)({
+    date: escapeHtml(date),
+    total,
+    delta: total - prevTotal,
+    hasPrev: prevTotal > 0,
+    modeFor: counters.mode_for || 0,
+    modeExcept: counters.mode_except || 0,
+    authors: unique_authors,
+    targets: unique_targets,
+    delivered,
+    blocked,
+    expired,
+    readsTotal,
+    successPct: readsTotal > 0 ? Math.round((delivered / readsTotal) * 100) : 0,
+    avgLen,
+    median,
+    chatEntries,
+    errTotal: errParse + errRate + errOther,
+    errParse,
+    errRate,
+    errOther,
+  });
 }
 
 export async function sendDailyReport(bot, adminIds = [], dateString) {
   if (!bot || !Array.isArray(adminIds) || adminIds.length === 0) return;
-  const report = await buildDailyReport(dateString);
   for (const adminId of adminIds) {
     try {
+      const lang = (await getUserLang(adminId)) || DEFAULT_LANG;
+      const report = await buildDailyReport(dateString, lang);
       await bot.telegram.sendMessage(adminId, report, { parse_mode: 'HTML', disable_web_page_preview: true });
     } catch (err) {
       console.error(`Failed to send stats to admin ${adminId}`, err);
