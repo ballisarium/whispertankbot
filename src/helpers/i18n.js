@@ -24,7 +24,7 @@ secrets expire after 6 hours.
     langChanged: 'language changed to english',
     changeLanguage: '🌐 change language',
     back: '← back',
-    chooseLanguage: '🌐 <b>Choose your language</b>\n\nPick one of the options below 👇',
+    chooseLanguage: '🌐 <b>Choose your language</b>\n\nTap one of the options below 👇',
     startCooldown: (seconds) => `please wait ${seconds}s`,
     
     usageTitle: 'How to send a whisper?',
@@ -103,7 +103,7 @@ secrets expire after 6 hours.
     langChanged: 'язык изменён на русский',
     changeLanguage: '🌐 сменить язык',
     back: '← назад',
-    chooseLanguage: '🌐 <b>Выберите язык</b>\n\nВыберите один из вариантов ниже 👇',
+    chooseLanguage: '🌐 <b>Выберите язык</b>\n\nНажмите на один из вариантов ниже 👇',
     startCooldown: (seconds) => `подожди ${seconds} сек.`,
     
     usageTitle: 'Как отправить секрет?',
@@ -182,7 +182,7 @@ secrets expire after 6 hours.
     langChanged: 'мову змінено на українську',
     changeLanguage: '🌐 змінити мову',
     back: '← назад',
-    chooseLanguage: '🌐 <b>Оберіть мову</b>\n\nОберіть один з варіантів нижче 👇',
+    chooseLanguage: '🌐 <b>Оберіть мову</b>\n\nНатисніть на один з варіантів нижче 👇',
     startCooldown: (seconds) => `зачекай ${seconds} сек.`,
     
     usageTitle: 'Як надіслати секрет?',
