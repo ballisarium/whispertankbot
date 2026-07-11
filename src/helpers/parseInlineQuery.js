@@ -93,10 +93,6 @@ export function parseInlineQuery(rawQuery = '') {
     return { ...targetBack, secretText, targetPosition: 'back' };
   }
 
-  if (query.length > MAX_SECRET_LENGTH) {
-    return { error: ParseError.TOO_LONG, hint: `Secret is too long. Max ${MAX_SECRET_LENGTH} characters.` };
-  }
-
   return {
     error: ParseError.INVALID_TARGET,
     hint: `Use a numeric ID or @username, e.g. ${baseUsage}`,
