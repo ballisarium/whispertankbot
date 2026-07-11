@@ -99,9 +99,15 @@ const shutdownResources = async (signal) => {
 
 async function main() {
   try {
-    await bot.launch();
-    console.log(`Bot @${getBotUsername()} started successfully`);
-    await startStatsScheduler();
+    // Telegraf v4 `launch()` only resolves once the bot stops, so post-startup
+    // work must run from the onLaunch callback; otherwise the stats scheduler
+    // and the startup log would never run while the bot is polling.
+    await bot.launch(() => {
+      console.log(`Bot @${getBotUsername()} started successfully`);
+      startStatsScheduler().catch((err) => {
+        console.error('Failed to start stats scheduler', err);
+      });
+    });
   } catch (err) {
     console.error('Failed to launch bot', err);
     await shutdownResources('launch_error');
