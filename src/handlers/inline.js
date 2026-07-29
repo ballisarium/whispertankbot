@@ -9,7 +9,7 @@ import { escapeHtml } from '../helpers/html.js';
 import { getSafeErrorLogContext } from '../helpers/errorLog.js';
 import {
   getProfile,
-  rememberProfile,
+  learnUser,
   resolveUsername,
 } from '../helpers/userDirectory.js';
 import {
@@ -60,7 +60,12 @@ async function resolveTargetLabels(ctx, parsed, lang) {
         lastName: chat.last_name || '',
         username: chat.username || null,
       };
-      await rememberProfile(profile);
+      await learnUser({
+        ...chat,
+        active_usernames: Array.isArray(chat.active_usernames)
+          ? chat.active_usernames
+          : [],
+      });
     }
 
     if (profile) {

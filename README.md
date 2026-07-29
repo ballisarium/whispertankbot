@@ -11,7 +11,7 @@ Inline Telegram bot for sending short secret messages.
 - optional Redis storage
 - optional stats collection and daily reports for admins
 
-Username targets are allowed only when the bot can safely resolve the username to a Telegram user ID learned from a recent interaction. If the bot cannot verify a username, ask that user to start the bot or use their numeric user ID. Verified username mappings expire after 30 days.
+Username targets are allowed only when the bot can safely resolve the username to a Telegram user ID learned from a recent interaction. If the bot cannot verify a username, ask that user to start the bot or use their numeric user ID. The bot learns all active usernames returned for that user by Telegram and refreshes the list at most once every 24 hours. Verified username mappings expire after 30 days.
 
 Display names resolved for numeric user IDs are cached for 24 hours to avoid repeated Telegram profile lookups. This display cache does not affect recipient authorization.
 

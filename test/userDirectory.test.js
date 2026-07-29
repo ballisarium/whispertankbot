@@ -39,6 +39,57 @@ test('expires observed usernames after thirty days', async () => {
   assert.equal(await directory.resolve('friend'), null);
 });
 
+test('resolves every active username learned from full private chat info', async () => {
+  const directory = createUserDirectory({ getRedisClient: () => null, now: () => 1_000 });
+
+  await directory.learn({
+    id: 42,
+    username: 'primary_name',
+    active_usernames: ['primary_name', 'collectible_name'],
+  });
+
+  assert.equal(await directory.resolve('primary_name'), 42);
+  assert.equal(await directory.resolve('@COLLECTIBLE_NAME'), 42);
+});
+
+test('preserves active aliases on ordinary updates and removes inactive aliases on refresh', async () => {
+  const directory = createUserDirectory({ getRedisClient: () => null, now: () => 1_000 });
+  await directory.learn({
+    id: 42,
+    username: 'primary_name',
+    active_usernames: ['primary_name', 'collectible_name'],
+  });
+
+  await directory.learn({ id: 42, username: 'primary_name' });
+  assert.equal(await directory.resolve('collectible_name'), 42);
+
+  await directory.learn({
+    id: 42,
+    username: 'primary_name',
+    active_usernames: ['primary_name'],
+  });
+  assert.equal(await directory.resolve('primary_name'), 42);
+  assert.equal(await directory.resolve('collectible_name'), null);
+});
+
+test('refreshes complete active usernames at most once every twenty four hours', async () => {
+  let now = 1_000;
+  const directory = createUserDirectory({ getRedisClient: () => null, now: () => now });
+
+  await directory.learn({ id: 42, username: 'primary_name' });
+  assert.equal(await directory.needsUsernameRefresh(42, 'primary_name'), true);
+
+  await directory.learn({
+    id: 42,
+    username: 'primary_name',
+    active_usernames: ['primary_name', 'collectible_name'],
+  });
+  assert.equal(await directory.needsUsernameRefresh(42, 'primary_name'), false);
+
+  now += 24 * 60 * 60 * 1_000;
+  assert.equal(await directory.needsUsernameRefresh(42, 'primary_name'), true);
+});
+
 test('returns remembered numeric target profiles', async () => {
   const directory = createUserDirectory({ getRedisClient: () => null, now: () => 1_000 });
   const profile = {

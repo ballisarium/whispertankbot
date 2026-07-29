@@ -3,6 +3,7 @@ import { getSafeErrorLogContext } from './errorLog.js';
 
 const DIRECTORY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const PROFILE_TTL_MS = 24 * 60 * 60 * 1000;
+const USERNAME_REFRESH_TTL_MS = 24 * 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 1000;
 const MAX_MEMORY_USERS = 10000;
 const MAX_MEMORY_PROFILES = 10000;
@@ -16,12 +17,33 @@ const normalizeUsername = (username) => {
   return normalized || null;
 };
 
+const normalizeUsernames = (usernames) => [
+  ...new Set(
+    usernames
+      .map(normalizeUsername)
+      .filter(Boolean)
+  ),
+];
+
 const parseRecord = (raw) => {
   if (!raw) return null;
   try {
     const record = JSON.parse(raw);
     if (!record?.userId) return null;
-    return record;
+    const username = normalizeUsername(record.username);
+    const refreshedAt = record.usernamesRefreshedAt;
+    return {
+      ...record,
+      userId: String(record.userId),
+      username,
+      usernames: normalizeUsernames([
+        username,
+        ...(Array.isArray(record.usernames) ? record.usernames : []),
+      ]),
+      usernamesRefreshedAt: refreshedAt != null && Number.isFinite(Number(refreshedAt))
+        ? Number(refreshedAt)
+        : null,
+    };
   } catch {
     return null;
   }
@@ -76,12 +98,18 @@ export function createUserDirectory({
     }
   };
 
+  const removeMemoryUsernames = (usernames, userId) => {
+    for (const username of usernames || []) {
+      removeMemoryUsername(username, userId);
+    }
+  };
+
   const sweepExpired = () => {
     const currentTime = now();
     for (const [userId, record] of byUserId.entries()) {
       if (record.expiresAt <= currentTime) {
         byUserId.delete(userId);
-        removeMemoryUsername(record.username, userId);
+        removeMemoryUsernames(record.usernames, userId);
       }
     }
     for (const [userId, record] of profiles.entries()) {
@@ -96,25 +124,69 @@ export function createUserDirectory({
     const oldestUserId = byUserId.keys().next().value;
     const oldest = byUserId.get(oldestUserId);
     byUserId.delete(oldestUserId);
-    removeMemoryUsername(oldest?.username, oldestUserId);
+    removeMemoryUsernames(oldest?.usernames, oldestUserId);
   };
 
-  const learnMemory = (userId, username) => {
-    sweepExpired();
-    const previous = byUserId.get(userId);
-    removeMemoryUsername(previous?.username, userId);
-    ensureMemoryCapacity(userId);
+  const buildUserRecord = (
+    previous,
+    userId,
+    username,
+    activeUsernames,
+    currentTime
+  ) => {
+    const hasCompleteUsernames = Array.isArray(activeUsernames);
+    const previousAliases = (previous?.usernames || [])
+      .filter((candidate) => candidate !== previous?.username);
+    const usernames = hasCompleteUsernames
+      ? normalizeUsernames([username, ...activeUsernames])
+      : normalizeUsernames([username, ...previousAliases]);
+    const samePrimary = previous?.username === username;
 
-    const record = {
+    return {
       userId,
       username,
-      expiresAt: now() + DIRECTORY_TTL_MS,
+      usernames,
+      usernamesRefreshedAt: hasCompleteUsernames
+        ? currentTime
+        : samePrimary
+          ? previous?.usernamesRefreshedAt ?? null
+          : null,
+      expiresAt: currentTime + DIRECTORY_TTL_MS,
     };
+  };
+
+  const learnMemory = (userId, username, activeUsernames) => {
+    sweepExpired();
+    const previous = byUserId.get(userId);
+    const hasCompleteUsernames = Array.isArray(activeUsernames);
+    const candidate = buildUserRecord(
+      previous,
+      userId,
+      username,
+      activeUsernames,
+      now()
+    );
+    const usernames = candidate.usernames.filter((candidateUsername) => {
+      const owner = byUsername.get(candidateUsername);
+      return hasCompleteUsernames
+        || candidateUsername === username
+        || owner?.userId === userId;
+    });
+    const record = { ...candidate, usernames };
+
+    removeMemoryUsernames(
+      (previous?.usernames || []).filter(
+        (previousUsername) => !usernames.includes(previousUsername)
+      ),
+      userId
+    );
+    ensureMemoryCapacity(userId);
+
     byUserId.delete(userId);
     byUserId.set(userId, record);
-    if (username) {
-      byUsername.delete(username);
-      byUsername.set(username, record);
+    for (const activeUsername of usernames) {
+      byUsername.delete(activeUsername);
+      byUsername.set(activeUsername, record);
     }
     return record;
   };
@@ -131,20 +203,60 @@ export function createUserDirectory({
     });
   };
 
-  const learnRedis = async (redis, record, profile) => {
-    const previous = parseRecord(await redis.get(userKey(record.userId)));
+  const learnRedis = async (
+    redis,
+    userId,
+    username,
+    activeUsernames,
+    profile
+  ) => {
+    const previous = parseRecord(await redis.get(userKey(userId)));
+    const hasCompleteUsernames = Array.isArray(activeUsernames);
+    const candidate = buildUserRecord(
+      previous,
+      userId,
+      username,
+      activeUsernames,
+      now()
+    );
+    const relevantUsernames = normalizeUsernames([
+      ...(previous?.usernames || []),
+      ...candidate.usernames,
+    ]);
+    const owners = new Map(
+      await Promise.all(
+        relevantUsernames.map(async (candidateUsername) => [
+          candidateUsername,
+          parseRecord(await redis.get(usernameKey(candidateUsername))),
+        ])
+      )
+    );
+    const usernames = candidate.usernames.filter((candidateUsername) => {
+      const owner = owners.get(candidateUsername);
+      return hasCompleteUsernames
+        || candidateUsername === username
+        || owner?.userId === userId;
+    });
+    const record = { ...candidate, usernames };
     const multi = redis.multi();
 
-    if (previous?.username && previous.username !== record.username) {
-      const previousOwner = parseRecord(await redis.get(usernameKey(previous.username)));
-      if (previousOwner?.userId === record.userId) {
-        multi.del(usernameKey(previous.username));
+    for (const previousUsername of previous?.usernames || []) {
+      if (
+        !usernames.includes(previousUsername)
+        && owners.get(previousUsername)?.userId === userId
+      ) {
+        multi.del(usernameKey(previousUsername));
       }
     }
 
-    multi.set(userKey(record.userId), JSON.stringify(record), 'PX', DIRECTORY_TTL_MS);
-    if (record.username) {
-      multi.set(usernameKey(record.username), JSON.stringify(record), 'PX', DIRECTORY_TTL_MS);
+    multi.set(userKey(userId), JSON.stringify(record), 'PX', DIRECTORY_TTL_MS);
+    for (const activeUsername of usernames) {
+      multi.set(
+        usernameKey(activeUsername),
+        JSON.stringify(record),
+        'PX',
+        DIRECTORY_TTL_MS
+      );
     }
     if (profile) {
       multi.set(profileKey(profile.id), JSON.stringify(profile), 'PX', PROFILE_TTL_MS);
@@ -156,14 +268,23 @@ export function createUserDirectory({
     if (user?.id === undefined || user?.id === null) return false;
     const userId = String(user.id);
     const username = normalizeUsername(user.username);
-    const record = learnMemory(userId, username);
+    const activeUsernames = Array.isArray(user.active_usernames)
+      ? user.active_usernames
+      : null;
+    learnMemory(userId, username, activeUsernames);
     const profile = profileFromTelegramUser(user);
     if (profile) rememberProfileMemory(profile);
     const redis = getRedisClient();
 
     if (redis) {
       try {
-        await learnRedis(redis, record, profile);
+        await learnRedis(
+          redis,
+          userId,
+          username,
+          activeUsernames,
+          profile
+        );
       } catch (err) {
         console.error(
           'Failed to persist Telegram user directory entry',
@@ -177,7 +298,7 @@ export function createUserDirectory({
   const resolveMemory = (username) => {
     sweepExpired();
     const record = byUsername.get(username);
-    if (!record || record.username !== username) return null;
+    if (!record?.usernames?.includes(username)) return null;
     return Number(record.userId);
   };
 
@@ -189,7 +310,7 @@ export function createUserDirectory({
     if (redis) {
       try {
         const record = parseRecord(await redis.get(usernameKey(normalized)));
-        if (!record || record.username !== normalized) return null;
+        if (!record?.usernames?.includes(normalized)) return null;
         return Number(record.userId);
       } catch (err) {
         console.error(
@@ -199,6 +320,41 @@ export function createUserDirectory({
       }
     }
     return resolveMemory(normalized);
+  };
+
+  const needsUsernameRefreshMemory = (userId, username) => {
+    sweepExpired();
+    const record = byUserId.get(userId);
+    return !record
+      || record.username !== username
+      || record.usernamesRefreshedAt == null
+      || now() - record.usernamesRefreshedAt >= USERNAME_REFRESH_TTL_MS;
+  };
+
+  const needsUsernameRefresh = async (userId, username) => {
+    if (userId === undefined || userId === null) return false;
+    const normalizedId = String(userId);
+    const normalizedUsername = normalizeUsername(username);
+    const redis = getRedisClient();
+
+    if (redis) {
+      try {
+        const record = parseRecord(await redis.get(userKey(normalizedId)));
+        return !record
+          || record.username !== normalizedUsername
+          || record.usernamesRefreshedAt == null
+          || now() - record.usernamesRefreshedAt >= USERNAME_REFRESH_TTL_MS;
+      } catch (err) {
+        console.error(
+          'Failed to read Telegram username refresh state',
+          getSafeErrorLogContext(err, {
+            kind: 'storage',
+            operation: 'directory_refresh',
+          })
+        );
+      }
+    }
+    return needsUsernameRefreshMemory(normalizedId, normalizedUsername);
   };
 
   const rememberProfile = async (candidate) => {
@@ -265,13 +421,23 @@ export function createUserDirectory({
     reset();
   };
 
-  return { getProfile, learn, rememberProfile, resolve, reset, shutdown };
+  return {
+    getProfile,
+    learn,
+    needsUsernameRefresh,
+    rememberProfile,
+    resolve,
+    reset,
+    shutdown,
+  };
 }
 
 const userDirectory = createUserDirectory({ getRedisClient: getProjectRedisClient });
 
 export const learnUser = (user) => userDirectory.learn(user);
 export const getProfile = (userId) => userDirectory.getProfile(userId);
+export const needsUsernameRefresh = (userId, username) =>
+  userDirectory.needsUsernameRefresh(userId, username);
 export const rememberProfile = (profile) => userDirectory.rememberProfile(profile);
 export const resolveUsername = (username) => userDirectory.resolve(username);
 export const resetUserDirectoryForTests = () => userDirectory.reset();

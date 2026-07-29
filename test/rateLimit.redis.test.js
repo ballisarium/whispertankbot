@@ -9,6 +9,7 @@ import {
   createDraftRateLimiter,
   RateLimitResult,
 } from '../src/helpers/rateLimit.js';
+import { createUserDirectory } from '../src/helpers/userDirectory.js';
 
 let redisProcess;
 let redis;
@@ -162,4 +163,31 @@ test('Redis blocks the eleventh distinct draft in one minute', async (t) => {
     retryAfter: 60,
     charged: false,
   });
+});
+
+test('Redis keeps active aliases until a complete Telegram refresh removes them', async (t) => {
+  if (!redisServerAvailable) return t.skip('redis-server is not installed');
+  const directory = createUserDirectory({
+    getRedisClient: () => redis,
+    now: () => now,
+  });
+  t.after(() => directory.shutdown());
+
+  await directory.learn({
+    id: 42,
+    username: 'primary_name',
+    active_usernames: ['primary_name', 'collectible_name'],
+  });
+  assert.equal(await directory.resolve('collectible_name'), 42);
+
+  await directory.learn({ id: 42, username: 'primary_name' });
+  assert.equal(await directory.resolve('collectible_name'), 42);
+
+  await directory.learn({
+    id: 42,
+    username: 'primary_name',
+    active_usernames: ['primary_name'],
+  });
+  assert.equal(await directory.resolve('primary_name'), 42);
+  assert.equal(await directory.resolve('collectible_name'), null);
 });
