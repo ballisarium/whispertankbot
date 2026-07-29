@@ -40,12 +40,15 @@ function getAccessRole(secret, from) {
   let isTarget = false;
   if (secret.targetType === 'id') {
     isTarget = String(from.id) === String(secret.targetNormalized);
+  } else if (secret.resolvedTargetId) {
+    isTarget = Number(from.id) === Number(secret.resolvedTargetId);
   } else {
-    if (secret.resolvedTargetId) {
-      isTarget = Number(from.id) === Number(secret.resolvedTargetId);
-    } else {
-      return isAuthor ? AccessRole.AUTHOR : AccessRole.NONE;
-    }
+    // The username was unknown when the secret was created, so fall back to
+    // matching the username Telegram reports on the callback itself.
+    const fromUsername = typeof from.username === 'string'
+      ? from.username.toLowerCase()
+      : null;
+    isTarget = fromUsername !== null && fromUsername === secret.targetNormalized;
   }
 
   const isExcludeMode = secret.targetPosition === 'back';

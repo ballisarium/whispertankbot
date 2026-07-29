@@ -25,10 +25,10 @@ export function setBotUsername(username) {
 
 const getBaseUsage = () => `@${botUsername} @username|ID text`;
 
-export function parseInlineQuery(rawQuery = '') {
+export function parseInlineQuery(rawQuery = '', context = {}) {
   const query = rawQuery.trim();
   const baseUsage = getBaseUsage();
-  
+
   if (!query) {
     return { error: ParseError.MISSING_ALL, hint: baseUsage };
   }
@@ -38,22 +38,35 @@ export function parseInlineQuery(rawQuery = '') {
     return { error: ParseError.MISSING_TEXT, hint: baseUsage };
   }
 
+  const idTarget = (id, raw) => {
+    if (!USER_ID_RE.test(id)) return null;
+    return {
+      targetType: 'id',
+      targetNormalized: id,
+      targetId: id,
+      targetLabel: `ID ${id}`,
+      targetRaw: raw,
+    };
+  };
+
   const detectTarget = (token) => {
     if (!token) return null;
-    if (/^\d+$/.test(token) && !USER_ID_RE.test(token)) {
-      return null;
-    }
-    if (USER_ID_RE.test(token)) {
-      return {
-        targetType: 'id',
-        targetNormalized: token,
-        targetId: token,
-        targetLabel: `ID ${token}`,
-        targetRaw: token,
-      };
-    }
+
+    const prefixed = /^id:(\d+)$/i.exec(token);
+    if (prefixed) return idTarget(prefixed[1], token);
+
+    if (/^\d+$/.test(token)) return idTarget(token, token);
+
     if (!token.startsWith('@')) return null;
     const usernameToken = token.slice(1);
+
+    if (/^me$/i.test(usernameToken)) {
+      return context.senderId === undefined || context.senderId === null
+        ? null
+        : idTarget(String(context.senderId), token);
+    }
+    if (/^\d+$/.test(usernameToken)) return idTarget(usernameToken, token);
+
     if (USERNAME_RE.test(usernameToken)) {
       return {
         targetType: 'username',

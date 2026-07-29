@@ -126,7 +126,7 @@ export async function handleInlineQuery(ctx) {
   const lang = savedLang || detectLang(inlineQuery?.from?.language_code);
   const botUsername = getBotUsername();
 
-  const parsed = parseInlineQuery(inlineQuery?.query || '');
+  const parsed = parseInlineQuery(inlineQuery?.query || '', { senderId: authorId });
 
   if (parsed.error) {
     await trackError({ type: 'parse' });
@@ -157,19 +157,10 @@ export async function handleInlineQuery(ctx) {
   let resolvedTargetId = null;
   if (parsed.targetType === 'username') {
     resolvedTargetId = await resolveUsername(parsed.targetUsername);
-
-    if (!resolvedTargetId) {
-      await trackError({ type: 'target_resolve' });
-      const safeTarget = `@${escapeHtml(parsed.targetUsername)}`;
-      await answerSingleResult(ctx, buildMessageResult({
-        id: 'target_unavailable',
-        title: t('targetUnavailableTitle', lang),
-        description: t('targetUnavailableHint', lang)(safeTarget),
-        messageText: t('targetUnavailableHint', lang)(safeTarget),
-      }));
-      return;
-    }
   }
+  // An unknown username is not an error: the secret is still created and the
+  // reader is matched by their username when they tap the button.
+  const isUnverifiedTarget = parsed.targetType === 'username' && !resolvedTargetId;
 
   const rateCheck = await checkDraftRateLimit({
     userId: authorId,
@@ -226,9 +217,11 @@ export async function handleInlineQuery(ctx) {
   const messageText = isExcludeMode
     ? t('secretMessageExcept', lang)(messageLabel)
     : t('secretMessageFor', lang)(messageLabel);
-  const description = isExcludeMode
-    ? t('inlineDescriptionExcept', lang)(titleLabel)
-    : t('inlineDescriptionFor', lang)(titleLabel);
+  const description = isUnverifiedTarget
+    ? t('inlineDescriptionUnverified', lang)(titleLabel)
+    : isExcludeMode
+      ? t('inlineDescriptionExcept', lang)(titleLabel)
+      : t('inlineDescriptionFor', lang)(titleLabel);
 
   const results = [
     {

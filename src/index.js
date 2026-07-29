@@ -10,7 +10,7 @@ import { shutdownUserSettings } from './helpers/userSettings.js';
 import { buildDailyReport, getStatsTimezone, setStatsEnabled, setStatsTimezone, sendDailyReport } from './helpers/stats.js';
 import { getDateWithDayOffset, getNextRunDelayMs, parseAdminIds } from './helpers/config.js';
 import { getSafeErrorLogContext } from './helpers/errorLog.js';
-import { observeTelegramUser } from './helpers/observeUser.js';
+import { observeMentionedUser, observeTelegramUser } from './helpers/observeUser.js';
 import { shutdownUserDirectory } from './helpers/userDirectory.js';
 import {
   getTelegramErrorLogContext,
@@ -58,6 +58,7 @@ bot.use(async (ctx, next) => {
     ctx.telegram,
     ctx.update?.update_id
   );
+  await observeMentionedUser(ctx.message?.reply_to_message?.from);
   return next();
 });
 

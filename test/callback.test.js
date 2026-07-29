@@ -41,7 +41,7 @@ afterEach(async () => {
   await shutdown();
 });
 
-test('does not reveal an unresolved username secret by username fallback', async () => {
+test('reveals an unresolved username secret to the matching username', async () => {
   const secretId = await createSecret({
     targetType: 'username',
     targetNormalized: 'friend',
@@ -54,9 +54,53 @@ test('does not reveal an unresolved username secret by username fallback', async
 
   const answers = [];
   const ctx = createReadContext(secretId, {
-    from: { id: 2, username: 'friend' },
+    from: { id: 2, username: 'Friend' },
     answerCbQuery: async (text, options) => answers.push({ text, options }),
-    getChat: async () => ({ id: 2, type: 'private', username: 'friend' }),
+  });
+
+  await handleReadCallback(ctx);
+
+  assert.equal(answers[0]?.text, 'private');
+});
+
+test('blocks an unresolved username secret from a different username', async () => {
+  const secretId = await createSecret({
+    targetType: 'username',
+    targetNormalized: 'friend',
+    targetLabel: '@friend',
+    secretText: 'private',
+    authorId: 1,
+    targetPosition: 'front',
+    lang: 'en',
+  });
+
+  const answers = [];
+  const ctx = createReadContext(secretId, {
+    from: { id: 2, username: 'stranger' },
+    answerCbQuery: async (text, options) => answers.push({ text, options }),
+  });
+
+  await handleReadCallback(ctx);
+
+  assert.notEqual(answers[0]?.text, 'private');
+  assert.ok(await getSecret(secretId));
+});
+
+test('blocks an unresolved username secret from a user without a username', async () => {
+  const secretId = await createSecret({
+    targetType: 'username',
+    targetNormalized: 'friend',
+    targetLabel: '@friend',
+    secretText: 'private',
+    authorId: 1,
+    targetPosition: 'front',
+    lang: 'en',
+  });
+
+  const answers = [];
+  const ctx = createReadContext(secretId, {
+    from: { id: 2 },
+    answerCbQuery: async (text, options) => answers.push({ text, options }),
   });
 
   await handleReadCallback(ctx);

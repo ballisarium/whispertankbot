@@ -81,13 +81,14 @@ test('resolves a learned username without a Telegram getChat call', async () => 
   assert.equal(ctx.answers[0].results[0].id.length, 36);
 });
 
-test('returns the unavailable result for an unknown username', async () => {
+test('still creates a secret for an unknown username', async () => {
   setStatsEnabled(false);
   const ctx = createInlineContext({ query: '@unknown secret' });
 
   await handleInlineQuery(ctx);
 
-  assert.equal(ctx.answers[0].results[0].id, 'target_unavailable');
+  assert.equal(ctx.answers[0].results[0].id.length, 36);
+  assert.match(ctx.answers[0].results[0].title, /@unknown/);
 });
 
 test('caches numeric target profiles across inline updates', async () => {

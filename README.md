@@ -2,16 +2,19 @@
 
 Inline Telegram bot for sending short secret messages.
 
-- `@bot @username text` — verified recipient can read once; the author can also open their own secret
-- `@bot text @username` — everyone except the verified recipient can read
-- `@bot 123456789 text` — use a numeric Telegram user ID when username cannot be verified safely
+- `@bot @username text` — only that recipient can read once; the author can also open their own secret
+- `@bot text @username` — everyone except that recipient can read
+- `@bot 123456789 text` — target a numeric Telegram user ID (also `id:123456789` or `@123456789`)
+- `@bot @me text` — target yourself
 - secrets expire after 6 hours
 - max secret length: 200 characters
 - multilingual: en / ru / uk
 - optional Redis storage
 - optional stats collection and daily reports for admins
 
-Username targets are allowed only when the bot can safely resolve the username to a Telegram user ID learned from a recent interaction. If the bot cannot verify a username, ask that user to start the bot or use their numeric user ID. The bot learns all active usernames returned for that user by Telegram and refreshes the list at most once every 24 hours. Verified username mappings expire after 30 days.
+Username targets are resolved to a Telegram user ID whenever the bot has learned that username from a recent interaction, and the resolved ID is stored with the secret so the recipient stays the same even if they later change or drop their username. The bot learns usernames from any user it observes, including the author of a replied-to message, and it learns all active usernames returned for that user by Telegram, refreshing the list at most once every 24 hours. Username mappings expire after 30 days.
+
+When a username is still unknown at creation time, the secret is created anyway and the recipient is matched against the username Telegram reports when they tap the button. That match is by username rather than user ID, so a username transferred to someone else within the 6 hour secret lifetime would match the new holder.
 
 Display names resolved for numeric user IDs are cached for 24 hours to avoid repeated Telegram profile lookups. This display cache does not affect recipient authorization.
 

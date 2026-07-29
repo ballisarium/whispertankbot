@@ -7,6 +7,13 @@ import {
 const completeUsernames = (chat) =>
   Array.isArray(chat?.active_usernames) ? chat.active_usernames : [];
 
+// Users the bot only sees in passing (e.g. the author of a replied-to message)
+// still teach the directory their username, without a getChat refresh.
+export async function observeMentionedUser(user) {
+  if (!user || user.is_bot) return false;
+  return learnUser(user);
+}
+
 export async function observeTelegramUser(user, telegram, updateId) {
   const learned = await learnUser(user);
   if (!learned || !telegram?.getChat) return learned;
