@@ -217,11 +217,14 @@ export async function handleInlineQuery(ctx) {
   const messageText = isExcludeMode
     ? t('secretMessageExcept', lang)(messageLabel)
     : t('secretMessageFor', lang)(messageLabel);
+  const baseDescription = isExcludeMode
+    ? t('inlineDescriptionExcept', lang)(titleLabel)
+    : t('inlineDescriptionFor', lang)(titleLabel);
+  // The unverified note augments the description instead of replacing it, so
+  // the whisper/exclude distinction stays readable.
   const description = isUnverifiedTarget
-    ? t('inlineDescriptionUnverified', lang)(titleLabel)
-    : isExcludeMode
-      ? t('inlineDescriptionExcept', lang)(titleLabel)
-      : t('inlineDescriptionFor', lang)(titleLabel);
+    ? `${baseDescription} · ${t('unverifiedTargetNote', lang)}`
+    : baseDescription;
 
   const results = [
     {

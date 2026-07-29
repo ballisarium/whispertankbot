@@ -32,7 +32,7 @@ secrets expire after 6 hours.
     tooLongTitle: 'Too long: max 200 characters',
     tooLongHint: 'Secret is too long. Max 200 characters.',
     invalidTargetHint: () => '<tg-emoji emoji-id="5884097155341226387">👁</tg-emoji> @friend hello — secret for @friend\n<tg-emoji emoji-id="6032609071373226027">👥</tg-emoji> hello @friend — hidden from @friend',
-    inlineDescriptionUnverified: (target) => `I have not seen ${target} yet, so I will match them by their username`,
+    unverifiedTargetNote: 'not seen yet, matched by username',
     storageUnavailableTitle: 'Cannot create secret',
     storageUnavailableHint: 'Temporary storage is unavailable. Please try again later.',
     
@@ -110,7 +110,7 @@ secrets expire after 6 hours.
     tooLongTitle: 'Слишком длинный: макс. 200 символов',
     tooLongHint: 'Секрет слишком длинный. Максимум 200 символов.',
     invalidTargetHint: () => '<tg-emoji emoji-id="5884097155341226387">👁</tg-emoji> @friend привет — секрет для @friend\n<tg-emoji emoji-id="6032609071373226027">👥</tg-emoji> привет @friend — секрет от @friend',
-    inlineDescriptionUnverified: (target) => `Я ещё не встречал ${target}, поэтому определю его по юзернейму`,
+    unverifiedTargetNote: 'ещё не встречал, определю по юзернейму',
     storageUnavailableTitle: 'Не могу создать секрет',
     storageUnavailableHint: 'Временное хранилище недоступно. Попробуй позже.',
     
@@ -188,7 +188,7 @@ secrets expire after 6 hours.
     tooLongTitle: 'Занадто довгий: макс. 200 символів',
     tooLongHint: 'Секрет занадто довгий. Максимум 200 символів.',
     invalidTargetHint: () => '<tg-emoji emoji-id="5884097155341226387">👁</tg-emoji> @friend привіт — секрет для @friend\n<tg-emoji emoji-id="6032609071373226027">👥</tg-emoji> привіт @friend — секрет від @friend',
-    inlineDescriptionUnverified: (target) => `Я ще не зустрічав ${target}, тому визначу його за юзернеймом`,
+    unverifiedTargetNote: 'ще не зустрічав, визначу за юзернеймом',
     storageUnavailableTitle: 'Не можу створити секрет',
     storageUnavailableHint: 'Тимчасове сховище недоступне. Спробуй пізніше.',
     

@@ -91,6 +91,38 @@ test('still creates a secret for an unknown username', async () => {
   assert.match(ctx.answers[0].results[0].title, /@unknown/);
 });
 
+test('keeps the exclude wording alongside the unverified target note', async () => {
+  setStatsEnabled(false);
+  const ctx = createInlineContext({ query: 'secret @unknown' });
+
+  await handleInlineQuery(ctx);
+
+  const [result] = ctx.answers[0].results;
+  assert.match(result.description, /Everyone except @unknown/);
+  assert.match(result.description, /matched by username/);
+});
+
+test('keeps the whisper wording alongside the unverified target note', async () => {
+  setStatsEnabled(false);
+  const ctx = createInlineContext({ query: '@unknown secret' });
+
+  await handleInlineQuery(ctx);
+
+  const [result] = ctx.answers[0].results;
+  assert.match(result.description, /Only @unknown can read it/);
+  assert.match(result.description, /matched by username/);
+});
+
+test('omits the unverified note for a resolved username', async () => {
+  setStatsEnabled(false);
+  await learnUser({ id: 42, username: 'friend' });
+  const ctx = createInlineContext({ query: '@friend secret' });
+
+  await handleInlineQuery(ctx);
+
+  assert.doesNotMatch(ctx.answers[0].results[0].description, /matched by username/);
+});
+
 test('caches numeric target profiles across inline updates', async () => {
   setStatsEnabled(false);
   let getChatCalls = 0;
