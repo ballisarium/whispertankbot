@@ -1,4 +1,5 @@
 import { getRedisClient } from './secrets.js';
+import { getSafeErrorLogContext } from './errorLog.js';
 
 const REDIS_KEY_PREFIX = 'whisper:user:';
 const SETTINGS_TTL_MS = 365 * 24 * 60 * 60 * 1000; // 1 year
@@ -18,7 +19,10 @@ export async function getUserLang(userId) {
         return parsed.lang || null;
       }
     } catch (err) {
-      console.error('Failed to get user settings from Redis', err);
+      console.error(
+        'Failed to get user settings from Redis',
+        getSafeErrorLogContext(err, { kind: 'storage', operation: 'settings_read' })
+      );
     }
     return null;
   }
@@ -43,7 +47,10 @@ export async function setUserLang(userId, lang) {
       );
       return true;
     } catch (err) {
-      console.error('Failed to save user settings to Redis', err);
+      console.error(
+        'Failed to save user settings to Redis',
+        getSafeErrorLogContext(err, { kind: 'storage', operation: 'settings_write' })
+      );
       return false;
     }
   }

@@ -9,6 +9,7 @@ import { shutdownRateLimit } from './helpers/rateLimit.js';
 import { shutdownUserSettings } from './helpers/userSettings.js';
 import { buildDailyReport, getStatsTimezone, setStatsEnabled, setStatsTimezone, sendDailyReport } from './helpers/stats.js';
 import { getDateWithDayOffset, getNextRunDelayMs, parseAdminIds } from './helpers/config.js';
+import { getSafeErrorLogContext } from './helpers/errorLog.js';
 import { learnUser, shutdownUserDirectory } from './helpers/userDirectory.js';
 import {
   getTelegramErrorLogContext,
@@ -88,7 +89,10 @@ async function startStatsScheduler() {
     try {
       await sendDailyReport(bot, ADMIN_IDS, yesterdayStr);
     } catch (err) {
-      console.error('Failed to send daily report', err);
+      console.error(
+        'Failed to send daily report',
+        getSafeErrorLogContext(err, { kind: 'transport', operation: 'daily_report' })
+      );
     }
 
     const nextDelay = getNextRunDelayMs(timezone, STATS_SEND_AT);
@@ -120,11 +124,17 @@ async function main() {
     await bot.launch(() => {
       console.log(`Bot @${getBotUsername()} started successfully`);
       startStatsScheduler().catch((err) => {
-        console.error('Failed to start stats scheduler', err);
+        console.error(
+          'Failed to start stats scheduler',
+          getSafeErrorLogContext(err, { operation: 'stats_scheduler' })
+        );
       });
     });
   } catch (err) {
-    console.error('Failed to launch bot', err);
+    console.error(
+      'Failed to launch bot',
+      getSafeErrorLogContext(err, { kind: 'transport', operation: 'bot_launch' })
+    );
     await shutdownResources('launch_error');
     process.exit(1);
   }

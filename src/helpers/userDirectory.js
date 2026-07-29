@@ -1,4 +1,5 @@
 import { getRedisClient as getProjectRedisClient } from './secrets.js';
+import { getSafeErrorLogContext } from './errorLog.js';
 
 const DIRECTORY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const PROFILE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -164,7 +165,10 @@ export function createUserDirectory({
       try {
         await learnRedis(redis, record, profile);
       } catch (err) {
-        console.error('Failed to persist Telegram user directory entry', err?.message || err);
+        console.error(
+          'Failed to persist Telegram user directory entry',
+          getSafeErrorLogContext(err, { kind: 'storage', operation: 'directory_write' })
+        );
       }
     }
     return true;
@@ -188,7 +192,10 @@ export function createUserDirectory({
         if (!record || record.username !== normalized) return null;
         return Number(record.userId);
       } catch (err) {
-        console.error('Failed to read Telegram user directory entry', err?.message || err);
+        console.error(
+          'Failed to read Telegram user directory entry',
+          getSafeErrorLogContext(err, { kind: 'storage', operation: 'directory_read' })
+        );
       }
     }
     return resolveMemory(normalized);
@@ -209,7 +216,10 @@ export function createUserDirectory({
           PROFILE_TTL_MS
         );
       } catch (err) {
-        console.error('Failed to persist Telegram profile cache entry', err?.message || err);
+        console.error(
+          'Failed to persist Telegram profile cache entry',
+          getSafeErrorLogContext(err, { kind: 'storage', operation: 'profile_write' })
+        );
       }
     }
     return true;
@@ -229,7 +239,10 @@ export function createUserDirectory({
       try {
         return parseProfile(await redis.get(profileKey(normalizedId)));
       } catch (err) {
-        console.error('Failed to read Telegram profile cache entry', err?.message || err);
+        console.error(
+          'Failed to read Telegram profile cache entry',
+          getSafeErrorLogContext(err, { kind: 'storage', operation: 'profile_read' })
+        );
       }
     }
     return getProfileMemory(normalizedId);

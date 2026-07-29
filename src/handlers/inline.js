@@ -6,6 +6,7 @@ import { detectLang, t } from '../helpers/i18n.js';
 import { getUserLang } from '../helpers/userSettings.js';
 import { trackError, trackMessage } from '../helpers/stats.js';
 import { escapeHtml } from '../helpers/html.js';
+import { getSafeErrorLogContext } from '../helpers/errorLog.js';
 import {
   getProfile,
   rememberProfile,
@@ -190,7 +191,14 @@ export async function handleInlineQuery(ctx) {
   try {
     secretId = await createSecret({ ...parsed, chatType, authorId, lang, targetLabel: titleLabel, resolvedTargetId });
   } catch (err) {
-    console.error('Failed to create secret', err);
+    console.error(
+      'Failed to create secret',
+      getSafeErrorLogContext(err, {
+        kind: 'storage',
+        operation: 'secret_create',
+        updateId: ctx.update?.update_id,
+      })
+    );
     await trackError({ type: 'storage' });
     await answerSingleResult(ctx, buildMessageResult({
       id: 'storage_unavailable',

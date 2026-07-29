@@ -182,7 +182,10 @@ export async function handleReadCallback(ctx) {
         reply_markup: Markup.inlineKeyboard([]).reply_markup,
       });
     } catch (err) {
-      console.warn('Failed to edit message', err);
+      console.warn(
+        'Failed to edit message',
+        getTelegramErrorLogContext(err, ctx.update?.update_id)
+      );
     }
     return;
   }

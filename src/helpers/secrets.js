@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import Redis from 'ioredis';
+import { getSafeErrorLogContext } from './errorLog.js';
 
 const SECRET_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const CLEANUP_INTERVAL_MS = 60 * 1000; // 1 minute
@@ -17,7 +18,10 @@ if (REDIS_URL) {
     connectTimeout: 1000,
     retryStrategy: (times) => Math.min(times * 200, 2000),
   });
-  redisClient.on('error', (err) => console.error('Redis error', err?.message || err));
+  redisClient.on('error', (err) => console.error(
+    'Redis error',
+    getSafeErrorLogContext(err, { kind: 'storage', operation: 'redis_connection' })
+  ));
   redisClient.on('connect', () => console.log('Redis connected'));
   redisClient.on('ready', () => console.log('Redis ready'));
   redisClient.on('close', () => console.log('Redis connection closed'));
@@ -116,7 +120,10 @@ export async function createSecret({
       await redis.set(getRedisKey(id), JSON.stringify(record), 'PX', SECRET_TTL_MS);
       return id;
     } catch (err) {
-      console.error('Failed to create secret in Redis; falling back to memory', err);
+      console.error(
+        'Failed to create secret in Redis; falling back to memory',
+        getSafeErrorLogContext(err, { kind: 'storage', operation: 'secret_create' })
+      );
     }
   }
 
@@ -132,7 +139,10 @@ export async function getSecret(id) {
       if (!raw) return null;
       return JSON.parse(raw);
     } catch (err) {
-      console.error('Failed to read secret from Redis; falling back to memory', err);
+      console.error(
+        'Failed to read secret from Redis; falling back to memory',
+        getSafeErrorLogContext(err, { kind: 'storage', operation: 'secret_read' })
+      );
     }
   }
 
@@ -160,7 +170,10 @@ export async function consumeSecret(id) {
       if (!raw) return null;
       return { secret: JSON.parse(raw), ttlMs: Number(ttlMs) };
     } catch (err) {
-      console.error('Failed to consume secret from Redis; falling back to memory', err);
+      console.error(
+        'Failed to consume secret from Redis; falling back to memory',
+        getSafeErrorLogContext(err, { kind: 'storage', operation: 'secret_consume' })
+      );
     }
   }
 
@@ -179,7 +192,10 @@ export async function restoreSecret(id, secret, ttlMs = SECRET_TTL_MS) {
       await redis.set(getRedisKey(id), JSON.stringify(secret), 'PX', ttlMs);
       return true;
     } catch (err) {
-      console.error('Failed to restore secret in Redis; falling back to memory', err);
+      console.error(
+        'Failed to restore secret in Redis; falling back to memory',
+        getSafeErrorLogContext(err, { kind: 'storage', operation: 'secret_restore' })
+      );
     }
   }
 
@@ -201,7 +217,10 @@ export async function shutdown() {
     try {
       await redisClient.quit();
     } catch (err) {
-      console.error('Error closing Redis connection', err);
+      console.error(
+        'Error closing Redis connection',
+        getSafeErrorLogContext(err, { kind: 'storage', operation: 'redis_shutdown' })
+      );
       redisClient.disconnect();
     }
     redisClient = null;

@@ -1,5 +1,6 @@
 import { getRedisClient } from './secrets.js';
 import { formatDateInTimezone, validateTimezone } from './config.js';
+import { getSafeErrorLogContext } from './errorLog.js';
 import { escapeHtml } from './html.js';
 import { t, DEFAULT_LANG } from './i18n.js';
 import { getUserLang } from './userSettings.js';
@@ -117,7 +118,10 @@ const runStatsOperation = async (operation, label) => {
   try {
     await operation();
   } catch (err) {
-    console.error(`Stats ${label} failed`, err);
+    console.error(
+      `Stats ${label} failed`,
+      getSafeErrorLogContext(err, { kind: 'storage', operation: label })
+    );
   }
 };
 
@@ -174,7 +178,7 @@ export async function trackMessage({
     if (targetNormalized !== undefined && targetNormalized !== null) {
       entry.targets.add(String(targetNormalized));
     }
-  }, 'message tracking');
+  }, 'message_tracking');
 }
 
 export async function trackError({ dateString, type } = {}) {
@@ -196,7 +200,7 @@ export async function trackError({ dateString, type } = {}) {
     cleanupMemoryStats();
     const entry = ensureMemoryEntry(dateStr);
     incMap(entry.counters, field, 1);
-  }, 'error tracking');
+  }, 'error_tracking');
 }
 
 export async function trackRead({ dateString, outcome } = {}) {
@@ -222,7 +226,7 @@ export async function trackRead({ dateString, outcome } = {}) {
     cleanupMemoryStats();
     const entry = ensureMemoryEntry(dateStr);
     incMap(entry.counters, field, 1);
-  }, 'read tracking');
+  }, 'read_tracking');
 }
 
 const parseIntSafe = (value) => {
@@ -313,7 +317,10 @@ export async function getDailyStats(dateString) {
     try {
       return await getRedisDailyStats(dateStr, redis);
     } catch (err) {
-      console.error('Failed to read Redis stats; falling back to memory stats', err);
+      console.error(
+        'Failed to read Redis stats; falling back to memory stats',
+        getSafeErrorLogContext(err, { kind: 'storage', operation: 'stats_read' })
+      );
     }
   }
   return getMemoryDailyStats(dateStr);
@@ -437,7 +444,10 @@ export async function sendDailyReport(bot, adminIds = [], dateString) {
         { method: 'sendMessage' }
       );
     } catch (err) {
-      console.error(`Failed to send stats to admin ${adminId}`, err);
+      console.error(
+        `Failed to send stats to admin ${adminId}`,
+        getSafeErrorLogContext(err, { kind: 'transport', operation: 'stats_send' })
+      );
     }
   }
 }

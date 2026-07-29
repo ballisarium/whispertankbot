@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { getRedisClient } from './secrets.js';
+import { getSafeErrorLogContext } from './errorLog.js';
 
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX_REQUESTS = 10;
@@ -197,7 +198,10 @@ export function createDraftRateLimiter({
       try {
         return await checkRedisDraftRateLimit(redis, input, now());
       } catch (err) {
-        console.error('Redis draft rate limit failed; falling back to memory', err);
+        console.error(
+          'Redis draft rate limit failed; falling back to memory',
+          getSafeErrorLogContext(err, { kind: 'storage', operation: 'rate_limit' })
+        );
       }
     }
     return checkMemory(input);
