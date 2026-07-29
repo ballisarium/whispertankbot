@@ -1,7 +1,7 @@
 import { Markup } from 'telegraf';
 import { createSecret } from '../helpers/secrets.js';
 import { parseInlineQuery, getBotUsername, ParseError } from '../helpers/parseInlineQuery.js';
-import { checkRateLimit, RateLimitResult } from '../helpers/rateLimit.js';
+import { checkDraftRateLimit, RateLimitResult } from '../helpers/rateLimit.js';
 import { detectLang, t } from '../helpers/i18n.js';
 import { getUserLang } from '../helpers/userSettings.js';
 import { trackError, trackMessage } from '../helpers/stats.js';
@@ -80,21 +80,6 @@ export async function handleInlineQuery(ctx) {
   const lang = savedLang || detectLang(inlineQuery?.from?.language_code);
   const botUsername = getBotUsername();
 
-  const rateCheck = await checkRateLimit(authorId, true);
-  if (rateCheck.result === RateLimitResult.BLOCKED) {
-    await trackError({ type: 'rate_limit' });
-    await answerSingleResult(ctx, {
-      type: 'article',
-      id: 'rate_limited',
-      title: t('rateLimitTitle', lang),
-      description: t('rateLimitDescription', lang)(rateCheck.retryAfter),
-      input_message_content: {
-        message_text: t('rateLimitMessage', lang)(rateCheck.retryAfter),
-      },
-    });
-    return;
-  }
-
   const parsed = parseInlineQuery(inlineQuery?.query || '');
 
   if (parsed.error) {
@@ -138,6 +123,25 @@ export async function handleInlineQuery(ctx) {
       }));
       return;
     }
+  }
+
+  const rateCheck = await checkDraftRateLimit({
+    userId: authorId,
+    targetKey: `${parsed.targetPosition}:${parsed.targetType}:${parsed.targetNormalized}`,
+    secretText: parsed.secretText,
+  });
+  if (rateCheck.result === RateLimitResult.BLOCKED) {
+    await trackError({ type: 'rate_limit' });
+    await answerSingleResult(ctx, {
+      type: 'article',
+      id: 'rate_limited',
+      title: t('rateLimitTitle', lang),
+      description: t('rateLimitDescription', lang)(rateCheck.retryAfter),
+      input_message_content: {
+        message_text: t('rateLimitMessage', lang)(rateCheck.retryAfter),
+      },
+    });
+    return;
   }
 
   const { titleLabel, messageLabel } = await resolveTargetLabels(ctx, parsed, lang);

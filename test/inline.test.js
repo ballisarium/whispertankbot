@@ -74,14 +74,29 @@ test('returns the unavailable result for an unknown username', async () => {
   assert.equal(ctx.answers[0].results[0].id, 'target_unavailable');
 });
 
-test('rate limits invalid inline queries too', async () => {
+test('does not rate limit incomplete inline typing', async () => {
   setStatsEnabled(false);
   let lastCtx;
 
-  for (let i = 0; i < 11; i++) {
-    lastCtx = createInlineContext({ query: 'invalid', fromId: 77 });
+  for (let i = 0; i < 20; i++) {
+    const length = Math.min('@friend'.length, (i % 8) + 1);
+    lastCtx = createInlineContext({ query: '@friend'.slice(0, length), fromId: 77 });
     await handleInlineQuery(lastCtx);
   }
 
-  assert.equal(lastCtx.answers[0].results[0].id, 'rate_limited');
+  assert.notEqual(lastCtx.answers[0].results[0].id, 'rate_limited');
+});
+
+test('treats character-by-character secret typing as one draft', async () => {
+  setStatsEnabled(false);
+  await learnUser({ id: 42, username: 'friend' });
+
+  for (let length = 1; length <= 15; length++) {
+    const ctx = createInlineContext({
+      query: `@friend ${'a'.repeat(length)}`,
+      fromId: 77,
+    });
+    await handleInlineQuery(ctx);
+    assert.notEqual(ctx.answers[0].results[0].id, 'rate_limited');
+  }
 });
