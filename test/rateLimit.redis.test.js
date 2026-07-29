@@ -35,7 +35,7 @@ before(async () => {
 
   await new Promise((resolve, reject) => {
     const onOutput = (chunk) => {
-      if (chunk.toString().includes('Ready to accept connections')) {
+      if (chunk.toString().toLowerCase().includes('ready to accept connections')) {
         resolve();
       }
     };
