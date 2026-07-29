@@ -9,6 +9,7 @@ import { shutdownRateLimit } from './helpers/rateLimit.js';
 import { shutdownUserSettings } from './helpers/userSettings.js';
 import { buildDailyReport, getStatsTimezone, setStatsEnabled, setStatsTimezone, sendDailyReport } from './helpers/stats.js';
 import { getDateWithDayOffset, getNextRunDelayMs, parseAdminIds } from './helpers/config.js';
+import { learnUser, shutdownUserDirectory } from './helpers/userDirectory.js';
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const BOT_USERNAME = process.env.BOT_USERNAME;
@@ -41,6 +42,11 @@ const bot = new Telegraf(BOT_TOKEN, {
 bot.catch((err, ctx) => {
   const updateId = ctx?.update?.update_id || 'unknown';
   console.error(`Bot error for update ${updateId}:`, err);
+});
+
+bot.use(async (ctx, next) => {
+  await learnUser(ctx.from);
+  return next();
 });
 
 bot.start(handleStart);
@@ -93,6 +99,7 @@ const shutdownResources = async (signal) => {
     clearTimeout(statsTimer);
     statsTimer = null;
   }
+  shutdownUserDirectory();
   await shutdownSecrets();
   shutdownRateLimit();
   shutdownUserSettings();

@@ -6,6 +6,7 @@ import { detectLang, t } from '../helpers/i18n.js';
 import { getUserLang } from '../helpers/userSettings.js';
 import { trackError, trackMessage } from '../helpers/stats.js';
 import { escapeHtml } from '../helpers/html.js';
+import { resolveUsername } from '../helpers/userDirectory.js';
 
 function buildInlineKeyboard(secretId, lang) {
   return Markup.inlineKeyboard([[Markup.button.callback(t('readButton', lang), `read:${secretId}`)]])
@@ -124,14 +125,7 @@ export async function handleInlineQuery(ctx) {
 
   let resolvedTargetId = null;
   if (parsed.targetType === 'username') {
-    try {
-      const chat = await ctx.telegram.getChat(`@${parsed.targetUsername}`);
-      if (chat && chat.type === 'private') {
-        resolvedTargetId = chat.id;
-      }
-    } catch (err) {
-      console.warn('Could not resolve username to ID:', parsed.targetUsername, err?.message || err);
-    }
+    resolvedTargetId = await resolveUsername(parsed.targetUsername);
 
     if (!resolvedTargetId) {
       await trackError({ type: 'target_resolve' });
