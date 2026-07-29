@@ -10,6 +10,7 @@ import { shutdownUserSettings } from './helpers/userSettings.js';
 import { buildDailyReport, getStatsTimezone, setStatsEnabled, setStatsTimezone, sendDailyReport } from './helpers/stats.js';
 import { getDateWithDayOffset, getNextRunDelayMs, parseAdminIds } from './helpers/config.js';
 import { learnUser, shutdownUserDirectory } from './helpers/userDirectory.js';
+import { shutdownTelegramScheduler } from './helpers/telegramScheduler.js';
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const BOT_USERNAME = process.env.BOT_USERNAME;
@@ -99,6 +100,7 @@ const shutdownResources = async (signal) => {
     clearTimeout(statsTimer);
     statsTimer = null;
   }
+  await shutdownTelegramScheduler();
   shutdownUserDirectory();
   await shutdownSecrets();
   shutdownRateLimit();

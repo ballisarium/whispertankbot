@@ -2,6 +2,21 @@ import assert from 'node:assert/strict';
 import test, { afterEach } from 'node:test';
 import { handleReadCallback } from '../src/handlers/callback.js';
 import { createSecret, getSecret, shutdown } from '../src/helpers/secrets.js';
+import {
+  createTelegramScheduler,
+  resetTelegramSchedulerForTests,
+  setTelegramSchedulerForTests,
+} from '../src/helpers/telegramScheduler.js';
+
+const deferred = () => {
+  let resolve;
+  const promise = new Promise((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+};
+
+const flushTasks = () => new Promise((resolve) => setImmediate(resolve));
 
 function createReadContext(secretId, { from, answerCbQuery, sendMessage, getChat, editMessageText } = {}) {
   return {
@@ -17,6 +32,7 @@ function createReadContext(secretId, { from, answerCbQuery, sendMessage, getChat
 }
 
 afterEach(async () => {
+  resetTelegramSchedulerForTests();
   await shutdown();
 });
 
@@ -127,4 +143,32 @@ test('keeps a consumed target secret if full long-message delivery fails', async
 
   assert.ok(await getSecret(secretId));
   assert.notEqual(answers[0]?.text, `${longSecret.slice(0, 187)}...`);
+});
+
+test('submits callback answers through the interactive scheduler', async () => {
+  const scheduler = createTelegramScheduler({
+    limits: { interactiveConcurrency: 1 },
+  });
+  setTelegramSchedulerForTests(scheduler);
+  const release = deferred();
+  const blocker = scheduler.interactive(() => release.promise);
+  await flushTasks();
+  const answers = [];
+  const ctx = createReadContext('invalid', {
+    from: { id: 42 },
+    answerCbQuery: async (text, options) => answers.push({ text, options }),
+  });
+  let settled = false;
+  const handling = handleReadCallback(ctx).then(() => {
+    settled = true;
+  });
+
+  await flushTasks();
+  assert.equal(settled, false);
+
+  release.resolve();
+  await blocker;
+  await handling;
+  assert.equal(answers.length, 1);
+  await scheduler.shutdown();
 });

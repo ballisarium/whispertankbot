@@ -7,6 +7,7 @@ import { getUserLang } from '../helpers/userSettings.js';
 import { trackError, trackMessage } from '../helpers/stats.js';
 import { escapeHtml } from '../helpers/html.js';
 import { resolveUsername } from '../helpers/userDirectory.js';
+import { scheduleInteractive } from '../helpers/telegramScheduler.js';
 
 function buildInlineKeyboard(secretId, lang) {
   return Markup.inlineKeyboard([[Markup.button.callback(t('readButton', lang), `read:${secretId}`)]])
@@ -55,8 +56,14 @@ async function resolveTargetLabels(ctx, parsed, lang) {
   return { titleLabel, messageLabel };
 }
 
+const answerInline = (ctx, results, options) =>
+  scheduleInteractive(
+    () => ctx.answerInlineQuery(results, options),
+    { method: 'answerInlineQuery', updateId: ctx.update?.update_id }
+  );
+
 const answerSingleResult = (ctx, result) =>
-  ctx.answerInlineQuery([result], { is_personal: true, cache_time: 0 });
+  answerInline(ctx, [result], { is_personal: true, cache_time: 0 });
 
 function buildMessageResult({ id, title, description, messageText, replyMarkup }) {
   return {
@@ -193,5 +200,5 @@ export async function handleInlineQuery(ctx) {
     },
   ];
 
-  await ctx.answerInlineQuery(results, { is_personal: true, cache_time: 0 });
+  await answerInline(ctx, results, { is_personal: true, cache_time: 0 });
 }

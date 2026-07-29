@@ -3,6 +3,7 @@ import { formatDateInTimezone, validateTimezone } from './config.js';
 import { escapeHtml } from './html.js';
 import { t, DEFAULT_LANG } from './i18n.js';
 import { getUserLang } from './userSettings.js';
+import { scheduleDelivery } from './telegramScheduler.js';
 
 const STATS_PREFIX = 'whisper:stats:';
 const STATS_TTL_DAYS = 40;
@@ -427,7 +428,14 @@ export async function sendDailyReport(bot, adminIds = [], dateString) {
     try {
       const lang = (await getUserLang(adminId)) || DEFAULT_LANG;
       const report = await buildDailyReport(dateString, lang);
-      await bot.telegram.sendMessage(adminId, report, { parse_mode: 'HTML', disable_web_page_preview: true });
+      await scheduleDelivery(
+        `user:${adminId}`,
+        () => bot.telegram.sendMessage(adminId, report, {
+          parse_mode: 'HTML',
+          disable_web_page_preview: true,
+        }),
+        { method: 'sendMessage' }
+      );
     } catch (err) {
       console.error(`Failed to send stats to admin ${adminId}`, err);
     }

@@ -3,6 +3,11 @@ import { consumeSecret, getSecret, restoreSecret } from '../helpers/secrets.js';
 import { t, DEFAULT_LANG } from '../helpers/i18n.js';
 import { trackRead } from '../helpers/stats.js';
 import { maxSecretLength } from '../helpers/parseInlineQuery.js';
+import {
+  deliveryScopeFor,
+  scheduleDelivery,
+  scheduleInteractive,
+} from '../helpers/telegramScheduler.js';
 
 const MAX_ALERT_LENGTH = maxSecretLength;
 
@@ -13,6 +18,19 @@ export const AccessRole = {
   TARGET: 'target',
   ALLOWED_EXCLUDE: 'allowed_exclude',
 };
+
+const answerCallback = (ctx, text, options) =>
+  scheduleInteractive(
+    () => ctx.answerCbQuery(text, options),
+    { method: 'answerCbQuery', updateId: ctx.update?.update_id }
+  );
+
+const editCallbackMessage = (ctx, text, options) =>
+  scheduleDelivery(
+    deliveryScopeFor(ctx),
+    () => ctx.editMessageText(text, options),
+    { method: 'editMessageText', updateId: ctx.update?.update_id }
+  );
 
 function getAccessRole(secret, from) {
   if (!from) return AccessRole.NONE;
@@ -43,20 +61,24 @@ function getAccessRole(secret, from) {
 
 async function deliverSecret(ctx, secret, lang) {
   if (secret.secretText.length <= MAX_ALERT_LENGTH) {
-    await ctx.answerCbQuery(secret.secretText, { show_alert: true });
+    await answerCallback(ctx, secret.secretText, { show_alert: true });
     return true;
   }
 
   try {
-    await ctx.telegram.sendMessage(ctx.from.id, secret.secretText, {
-      disable_notification: true,
-      protect_content: true,
-    });
-    await ctx.answerCbQuery(t('secretSentDM', lang), { show_alert: true });
+    await scheduleDelivery(
+      `user:${ctx.from.id}`,
+      () => ctx.telegram.sendMessage(ctx.from.id, secret.secretText, {
+        disable_notification: true,
+        protect_content: true,
+      }),
+      { method: 'sendMessage', updateId: ctx.update?.update_id }
+    );
+    await answerCallback(ctx, t('secretSentDM', lang), { show_alert: true });
     return true;
   } catch (err) {
     console.warn('Failed to DM secret', err?.message || err);
-    await ctx.answerCbQuery(t('secretDeliveryFailed', lang), { show_alert: true });
+    await answerCallback(ctx, t('secretDeliveryFailed', lang), { show_alert: true });
     return false;
   }
 }
@@ -67,7 +89,7 @@ export async function handleReadCallback(ctx) {
   const secretId = ctx.match?.[1];
   
   if (!secretId || !UUID_REGEX.test(secretId)) {
-    await ctx.answerCbQuery(t('secretNotFound', DEFAULT_LANG), { show_alert: false });
+    await answerCallback(ctx, t('secretNotFound', DEFAULT_LANG), { show_alert: false });
     return;
   }
   
@@ -76,7 +98,7 @@ export async function handleReadCallback(ctx) {
 
   if (!secret) {
     await trackRead({ outcome: 'expired' });
-    await ctx.answerCbQuery(t('secretNotFound', DEFAULT_LANG), { show_alert: false });
+    await answerCallback(ctx, t('secretNotFound', DEFAULT_LANG), { show_alert: false });
     return;
   }
 
@@ -86,12 +108,12 @@ export async function handleReadCallback(ctx) {
   if (role === AccessRole.BLOCKED) {
     await trackRead({ outcome: 'blocked' });
     const message = isExcludeMode ? t('secretExcludesYou', lang) : t('secretNotForYou', lang);
-    await ctx.answerCbQuery(message, { show_alert: false });
+    await answerCallback(ctx, message, { show_alert: false });
     return;
   }
 
   if (role === AccessRole.NONE) {
-    await ctx.answerCbQuery(t('unableToVerify', lang), { show_alert: false });
+    await answerCallback(ctx, t('unableToVerify', lang), { show_alert: false });
     return;
   }
 
@@ -99,7 +121,7 @@ export async function handleReadCallback(ctx) {
     const consumed = await consumeSecret(secretId);
     if (!consumed) {
       await trackRead({ outcome: 'expired' });
-      await ctx.answerCbQuery(t('secretNotFound', lang), { show_alert: false });
+      await answerCallback(ctx, t('secretNotFound', lang), { show_alert: false });
       return;
     }
 
@@ -108,7 +130,7 @@ export async function handleReadCallback(ctx) {
     if (consumedRole !== AccessRole.TARGET) {
       await restoreSecret(secretId, consumedSecret, consumed.ttlMs);
       await trackRead({ outcome: 'blocked' });
-      await ctx.answerCbQuery(t('secretNotForYou', lang), { show_alert: false });
+      await answerCallback(ctx, t('secretNotForYou', lang), { show_alert: false });
       return;
     }
 
@@ -120,7 +142,7 @@ export async function handleReadCallback(ctx) {
 
     await trackRead({ outcome: 'delivered' });
     try {
-      await ctx.editMessageText(t('secretAlreadyRead', lang), {
+      await editCallbackMessage(ctx, t('secretAlreadyRead', lang), {
         parse_mode: 'HTML',
         reply_markup: Markup.inlineKeyboard([]).reply_markup,
       });

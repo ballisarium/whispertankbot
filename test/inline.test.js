@@ -8,6 +8,21 @@ import {
   learnUser,
   resetUserDirectoryForTests,
 } from '../src/helpers/userDirectory.js';
+import {
+  createTelegramScheduler,
+  resetTelegramSchedulerForTests,
+  setTelegramSchedulerForTests,
+} from '../src/helpers/telegramScheduler.js';
+
+const deferred = () => {
+  let resolve;
+  const promise = new Promise((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+};
+
+const flushTasks = () => new Promise((resolve) => setImmediate(resolve));
 
 function createInlineContext({ query, fromId = 10, getChat } = {}) {
   const answers = [];
@@ -33,6 +48,7 @@ afterEach(async () => {
   resetRateLimitForTests();
   resetStatsForTests();
   resetUserDirectoryForTests();
+  resetTelegramSchedulerForTests();
   await shutdown();
 });
 
@@ -99,4 +115,29 @@ test('treats character-by-character secret typing as one draft', async () => {
     await handleInlineQuery(ctx);
     assert.notEqual(ctx.answers[0].results[0].id, 'rate_limited');
   }
+});
+
+test('submits inline answers through the interactive scheduler', async () => {
+  setStatsEnabled(false);
+  const scheduler = createTelegramScheduler({
+    limits: { interactiveConcurrency: 1 },
+  });
+  setTelegramSchedulerForTests(scheduler);
+  const release = deferred();
+  const blocker = scheduler.interactive(() => release.promise);
+  await flushTasks();
+  const ctx = createInlineContext({ query: 'invalid', fromId: 91 });
+  let settled = false;
+  const handling = handleInlineQuery(ctx).then(() => {
+    settled = true;
+  });
+
+  await flushTasks();
+  assert.equal(settled, false);
+
+  release.resolve();
+  await blocker;
+  await handling;
+  assert.equal(ctx.answers[0].results[0].id, 'usage');
+  await scheduler.shutdown();
 });

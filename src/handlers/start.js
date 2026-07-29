@@ -3,6 +3,31 @@ import { detectLang, t } from '../helpers/i18n.js';
 import { getUserLang, setUserLang, checkStartCooldown } from '../helpers/userSettings.js';
 import { getBotUsername } from '../helpers/parseInlineQuery.js';
 import { isValidDateString } from '../helpers/config.js';
+import {
+  deliveryScopeFor,
+  scheduleDelivery,
+  scheduleInteractive,
+} from '../helpers/telegramScheduler.js';
+
+const reply = (ctx, text, options) =>
+  scheduleDelivery(
+    deliveryScopeFor(ctx),
+    () => ctx.reply(text, options),
+    { method: 'sendMessage', updateId: ctx.update?.update_id }
+  );
+
+const editMessage = (ctx, text, options) =>
+  scheduleDelivery(
+    deliveryScopeFor(ctx),
+    () => ctx.editMessageText(text, options),
+    { method: 'editMessageText', updateId: ctx.update?.update_id }
+  );
+
+const answerCallback = (ctx, text, options) =>
+  scheduleInteractive(
+    () => ctx.answerCbQuery(text, options),
+    { method: 'answerCbQuery', updateId: ctx.update?.update_id }
+  );
 
 function buildMainKeyboard(lang) {
   return Markup.inlineKeyboard([
@@ -27,7 +52,7 @@ export async function handleStart(ctx) {
   const cooldown = checkStartCooldown(userId);
   if (!cooldown.allowed) {
     const userLang = await getUserLang(userId) || detectLang(ctx.from?.language_code);
-    await ctx.reply(t('startCooldown', userLang)(cooldown.retryAfter));
+    await reply(ctx, t('startCooldown', userLang)(cooldown.retryAfter));
     return;
   }
   
@@ -40,7 +65,7 @@ export async function handleStart(ctx) {
   const botUsername = getBotUsername();
   const message = t('welcomeMessage', lang)(botUsername);
   
-  await ctx.reply(message, {
+  await reply(ctx, message, {
     parse_mode: 'HTML',
     ...buildMainKeyboard(lang),
   });
@@ -49,22 +74,22 @@ export async function handleStart(ctx) {
 export async function handleStatsCommand(ctx, isAdmin, buildReport) {
   const userLang = await getUserLang(ctx.from?.id) || detectLang(ctx.from?.language_code);
   if (!isAdmin) {
-    await ctx.reply(t('statsAdminOnly', userLang));
+    await reply(ctx, t('statsAdminOnly', userLang));
     return;
   }
   const dateStr = ctx.message?.text?.split(' ')?.[1];
   if (dateStr && !isValidDateString(dateStr)) {
-    await ctx.reply(t('statsUsage', userLang));
+    await reply(ctx, t('statsUsage', userLang));
     return;
   }
   const report = await buildReport(dateStr, userLang);
-  await ctx.reply(report, { parse_mode: 'HTML', disable_web_page_preview: true });
+  await reply(ctx, report, { parse_mode: 'HTML', disable_web_page_preview: true });
 }
 
 export async function handleLangCallback(ctx) {
   const lang = ctx.match?.[1];
   if (!lang || !['en', 'ru', 'uk'].includes(lang)) {
-    await ctx.answerCbQuery('Invalid language', { show_alert: false });
+    await answerCallback(ctx, 'Invalid language', { show_alert: false });
     return;
   }
 
@@ -75,14 +100,14 @@ export async function handleLangCallback(ctx) {
   const message = t('welcomeMessage', lang)(botUsername);
 
   try {
-    await ctx.editMessageText(message, {
+    await editMessage(ctx, message, {
       parse_mode: 'HTML',
       ...buildMainKeyboard(lang),
     });
   } catch (err) {
     // message may be unchanged; still acknowledge the selection
   }
-  await ctx.answerCbQuery(t('langChanged', lang), { show_alert: false });
+  await answerCallback(ctx, t('langChanged', lang), { show_alert: false });
 }
 
 export async function handleMenuCallback(ctx) {
@@ -95,12 +120,12 @@ export async function handleMenuCallback(ctx) {
   const keyboard = isLangMenu ? buildLangKeyboard(lang) : buildMainKeyboard(lang);
 
   try {
-    await ctx.editMessageText(message, {
+    await editMessage(ctx, message, {
       parse_mode: 'HTML',
       ...keyboard,
     });
   } catch (err) {
     // ignore "message is not modified"
   }
-  await ctx.answerCbQuery();
+  await answerCallback(ctx);
 }
