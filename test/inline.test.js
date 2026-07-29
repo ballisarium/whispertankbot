@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test, { afterEach } from 'node:test';
 import { handleInlineQuery } from '../src/handlers/inline.js';
 import { resetRateLimitForTests } from '../src/helpers/rateLimit.js';
+import { setBotUsername } from '../src/helpers/parseInlineQuery.js';
 import { shutdown } from '../src/helpers/secrets.js';
 import { resetStatsForTests, setStatsEnabled } from '../src/helpers/stats.js';
 import {
@@ -89,6 +90,34 @@ test('still creates a secret for an unknown username', async () => {
 
   assert.equal(ctx.answers[0].results[0].id.length, 36);
   assert.match(ctx.answers[0].results[0].title, /@unknown/);
+});
+
+test('distinguishes an unreadable recipient from a missing message', async () => {
+  setStatsEnabled(false);
+  setBotUsername('wsprtankbot');
+
+  const invalid = createInlineContext({ query: '!!! secret' });
+  await handleInlineQuery(invalid);
+  const missing = createInlineContext({ query: '@friend' });
+  await handleInlineQuery(missing);
+
+  const invalidResult = invalid.answers[0].results[0];
+  const missingResult = missing.answers[0].results[0];
+
+  assert.notEqual(invalidResult.title, missingResult.title);
+  assert.notEqual(invalidResult.description, missingResult.description);
+  assert.match(invalidResult.description, /id:123456789/);
+  assert.match(invalidResult.description, /@me/);
+});
+
+test('names the bot in the usage hint', async () => {
+  setStatsEnabled(false);
+  setBotUsername('wsprtankbot');
+  const ctx = createInlineContext({ query: '@friend' });
+
+  await handleInlineQuery(ctx);
+
+  assert.match(ctx.answers[0].results[0].description, /@wsprtankbot @friend/);
 });
 
 test('keeps the exclude wording alongside the unverified target note', async () => {

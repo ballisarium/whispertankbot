@@ -135,7 +135,7 @@ export async function handleInlineQuery(ctx) {
       title = t('tooLongTitle', lang);
       hint = t('tooLongHint', lang);
     } else if (parsed.error === ParseError.INVALID_TARGET) {
-      title = t('usageTitle', lang);
+      title = t('invalidTargetTitle', lang);
       hint = t('invalidTargetHint', lang)(botUsername);
     } else {
       title = t('usageTitle', lang);
