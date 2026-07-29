@@ -6,8 +6,16 @@ import { detectLang, t } from '../helpers/i18n.js';
 import { getUserLang } from '../helpers/userSettings.js';
 import { trackError, trackMessage } from '../helpers/stats.js';
 import { escapeHtml } from '../helpers/html.js';
-import { resolveUsername } from '../helpers/userDirectory.js';
-import { scheduleInteractive } from '../helpers/telegramScheduler.js';
+import {
+  getProfile,
+  rememberProfile,
+  resolveUsername,
+} from '../helpers/userDirectory.js';
+import {
+  getTelegramErrorLogContext,
+  scheduleInteractive,
+  scheduleLookup,
+} from '../helpers/telegramScheduler.js';
 
 function buildInlineKeyboard(secretId, lang) {
   return Markup.inlineKeyboard([[Markup.button.callback(t('readButton', lang), `read:${secretId}`)]])
@@ -31,15 +39,37 @@ async function resolveTargetLabels(ctx, parsed, lang) {
   let messageLabel = t('userWithIdMessage', lang)(safeId);
 
   try {
-    const chat = await ctx.telegram.getChat(parsed.targetId);
-    if (chat && chat.type === 'private') {
-      const fullName = [chat.first_name, chat.last_name].filter(Boolean).join(' ').trim();
+    let profile = await getProfile(parsed.targetId);
+    if (!profile) {
+      const chat = await scheduleLookup(
+        `user:${parsed.targetId}`,
+        () => ctx.telegram.getChat(parsed.targetId),
+        { method: 'getChat', updateId: ctx.update?.update_id }
+      );
+      if (
+        !chat
+        || chat.type !== 'private'
+        || String(chat.id) !== String(parsed.targetId)
+      ) {
+        return { titleLabel, messageLabel };
+      }
+      profile = {
+        id: String(chat.id),
+        firstName: chat.first_name || '',
+        lastName: chat.last_name || '',
+        username: chat.username || null,
+      };
+      await rememberProfile(profile);
+    }
 
-      if (chat.username) {
+    if (profile) {
+      const fullName = [profile.firstName, profile.lastName].filter(Boolean).join(' ').trim();
+
+      if (profile.username) {
         // Приоритет 1: Name (@username)
-        const safeUsername = escapeHtml(chat.username);
+        const safeUsername = escapeHtml(profile.username);
         const displayPart = fullName ? `${escapeHtml(fullName)} (@${safeUsername})` : `@${safeUsername}`;
-        titleLabel = fullName ? `${fullName} (@${chat.username})` : `@${chat.username}`;
+        titleLabel = fullName ? `${fullName} (@${profile.username})` : `@${profile.username}`;
         messageLabel = displayPart;
       } else if (fullName) {
         // Приоритет 2: Name (ID X)
@@ -50,7 +80,10 @@ async function resolveTargetLabels(ctx, parsed, lang) {
       // Если нет ни username ни имени - оставляем дефолтные значения (ID X)
     }
   } catch (err) {
-    console.warn('Failed to resolve user name for ID', parsed.targetId, err?.message || err);
+    console.warn(
+      'Failed to resolve Telegram profile',
+      getTelegramErrorLogContext(err, ctx.update?.update_id)
+    );
   }
 
   return { titleLabel, messageLabel };

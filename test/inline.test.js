@@ -90,6 +90,25 @@ test('returns the unavailable result for an unknown username', async () => {
   assert.equal(ctx.answers[0].results[0].id, 'target_unavailable');
 });
 
+test('caches numeric target profiles across inline updates', async () => {
+  setStatsEnabled(false);
+  let getChatCalls = 0;
+  const getChat = async () => {
+    getChatCalls++;
+    return {
+      id: 42,
+      type: 'private',
+      first_name: 'Friend',
+      username: 'friend',
+    };
+  };
+
+  await handleInlineQuery(createInlineContext({ query: '42 first', getChat }));
+  await handleInlineQuery(createInlineContext({ query: '42 second', getChat }));
+
+  assert.equal(getChatCalls, 1);
+});
+
 test('does not rate limit incomplete inline typing', async () => {
   setStatsEnabled(false);
   let lastCtx;

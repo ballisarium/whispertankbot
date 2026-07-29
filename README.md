@@ -13,6 +13,8 @@ Inline Telegram bot for sending short secret messages.
 
 Username targets are allowed only when the bot can safely resolve the username to a Telegram user ID learned from a recent interaction. If the bot cannot verify a username, ask that user to start the bot or use their numeric user ID. Verified username mappings expire after 30 days.
 
+Display names resolved for numeric user IDs are cached for 24 hours to avoid repeated Telegram profile lookups. This display cache does not affect recipient authorization.
+
 ## setup
 
 ```bash
