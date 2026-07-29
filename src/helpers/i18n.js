@@ -10,12 +10,13 @@ send secret messages that only specific people can read.
 
 <b>how to use:</b>
 • type <code>@${safeBotUsername(botUsername)}</code> in any chat
-• add recipient: <code>@username</code> or user id
+• add recipient: <code>@username</code>, <code>123456789</code>, <code>id:123456789</code> or <code>@me</code>
 • write your secret message
 
 <b>examples:</b>
 <code>@${safeBotUsername(botUsername)} @friend hello!</code> — only @friend can read
 <code>@${safeBotUsername(botUsername)} secret text @friend</code> — everyone except @friend
+<code>@${safeBotUsername(botUsername)} @me reminder</code> — only you can read
 
 secrets expire after 6 hours.
 
@@ -89,12 +90,13 @@ secrets expire after 6 hours.
 
 <b>как использовать:</b>
 • напиши <code>@${safeBotUsername(botUsername)}</code> в любом чате
-• добавь получателя: <code>@username</code> или id
+• добавь получателя: <code>@username</code>, <code>123456789</code>, <code>id:123456789</code> или <code>@me</code>
 • напиши своё секретное сообщение
 
 <b>примеры:</b>
 <code>@${safeBotUsername(botUsername)} @friend привет!</code> — прочитает только @friend
 <code>@${safeBotUsername(botUsername)} секрет @friend</code> — все кроме @friend
+<code>@${safeBotUsername(botUsername)} @me напоминание</code> — прочитаешь только ты
 
 секреты исчезают через 6 часов.
 
@@ -168,12 +170,13 @@ secrets expire after 6 hours.
 
 <b>як використовувати:</b>
 • напиши <code>@${safeBotUsername(botUsername)}</code> у будь-якому чаті
-• додай отримувача: <code>@username</code> або id
+• додай отримувача: <code>@username</code>, <code>123456789</code>, <code>id:123456789</code> або <code>@me</code>
 • напиши своє секретне повідомлення
 
 <b>приклади:</b>
 <code>@${safeBotUsername(botUsername)} @friend привіт!</code> — прочитає лише @friend
 <code>@${safeBotUsername(botUsername)} секрет @friend</code> — усі крім @friend
+<code>@${safeBotUsername(botUsername)} @me нагадування</code> — прочитаєш лише ти
 
 секрети зникають через 6 годин.
 
