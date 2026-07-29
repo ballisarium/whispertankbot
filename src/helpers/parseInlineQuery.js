@@ -23,19 +23,16 @@ export function setBotUsername(username) {
   return botUsername;
 }
 
-const getBaseUsage = () => `@${botUsername} @username|ID text`;
-
 export function parseInlineQuery(rawQuery = '', context = {}) {
   const query = rawQuery.trim();
-  const baseUsage = getBaseUsage();
 
   if (!query) {
-    return { error: ParseError.MISSING_ALL, hint: baseUsage };
+    return { error: ParseError.MISSING_ALL };
   }
 
   const tokens = query.split(/\s+/);
   if (tokens.length < 2) {
-    return { error: ParseError.MISSING_TEXT, hint: baseUsage };
+    return { error: ParseError.MISSING_TEXT };
   }
 
   const idTarget = (id, raw) => {
@@ -81,14 +78,14 @@ export function parseInlineQuery(rawQuery = '', context = {}) {
 
   const textTooLong = (text) =>
     text && text.length > MAX_SECRET_LENGTH
-      ? { error: ParseError.TOO_LONG, hint: `Secret is too long. Max ${MAX_SECRET_LENGTH} characters.` }
+      ? { error: ParseError.TOO_LONG }
       : null;
 
   const targetFront = detectTarget(tokens[0]);
   if (targetFront) {
     const secretText = tokens.slice(1).join(' ').trim();
     if (!secretText) {
-      return { error: ParseError.MISSING_TEXT, hint: baseUsage };
+      return { error: ParseError.MISSING_TEXT };
     }
     const longErr = textTooLong(secretText);
     if (longErr) return longErr;
@@ -99,17 +96,14 @@ export function parseInlineQuery(rawQuery = '', context = {}) {
   if (targetBack) {
     const secretText = tokens.slice(0, -1).join(' ').trim();
     if (!secretText) {
-      return { error: ParseError.MISSING_TEXT, hint: baseUsage };
+      return { error: ParseError.MISSING_TEXT };
     }
     const longErr = textTooLong(secretText);
     if (longErr) return longErr;
     return { ...targetBack, secretText, targetPosition: 'back' };
   }
 
-  return {
-    error: ParseError.INVALID_TARGET,
-    hint: `Use a numeric ID or @username, e.g. ${baseUsage}`,
-  };
+  return { error: ParseError.INVALID_TARGET };
 }
 
 export const getBotUsername = () => botUsername;
