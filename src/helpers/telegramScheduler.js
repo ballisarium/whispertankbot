@@ -22,6 +22,46 @@ export class TelegramSchedulerClosedError extends Error {
   }
 }
 
+export class TelegramRequestError extends Error {
+  constructor({ cause, code, kind, method, retryAfter, updateId }) {
+    super(`Telegram ${method || 'request'} failed (${kind})`, { cause });
+    this.name = 'TelegramRequestError';
+    this.code = code;
+    this.kind = kind;
+    this.method = method;
+    this.retryAfter = retryAfter;
+    this.updateId = updateId;
+  }
+}
+
+const finiteNumberOrNull = (value) => {
+  if (value == null || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
+
+const telegramErrorCode = (error) =>
+  finiteNumberOrNull(error?.code ?? error?.response?.error_code);
+
+const telegramRetryAfter = (error) => {
+  const retryAfter = finiteNumberOrNull(
+    error?.parameters?.retry_after ?? error?.response?.parameters?.retry_after
+  );
+  return retryAfter != null && retryAfter > 0 ? retryAfter : null;
+};
+
+const isSchedulerError = (error) =>
+  error instanceof TelegramSchedulerClosedError
+  || error instanceof TelegramSchedulerOverloadedError;
+
+export const getTelegramErrorLogContext = (error, fallbackUpdateId) => ({
+  code: finiteNumberOrNull(error?.code),
+  kind: error?.kind || 'unknown',
+  method: error?.method || null,
+  retryAfter: finiteNumberOrNull(error?.retryAfter),
+  updateId: error?.updateId ?? fallbackUpdateId ?? 'unknown',
+});
+
 class WorkLane {
   constructor({ concurrency, maxQueue, name }) {
     this.active = 0;
@@ -248,15 +288,71 @@ export function createTelegramScheduler({
   });
   const lookupInFlight = new Map();
 
-  const interactive = (operation) => interactiveLane.enqueue(operation);
-  const delivery = (scope, operation) => deliveryLane.enqueue(scope, operation);
-  const lookup = (key, operation) => {
+  const requestError = (error, kind, meta) => new TelegramRequestError({
+    cause: error,
+    code: telegramErrorCode(error),
+    kind,
+    method: meta?.method || null,
+    retryAfter: telegramRetryAfter(error),
+    updateId: meta?.updateId ?? null,
+  });
+
+  const executeWithRetry = async (operation, operationKind, meta) => {
+    let attempt = 0;
+
+    while (true) {
+      try {
+        return await operation();
+      } catch (error) {
+        if (isSchedulerError(error) || error instanceof TelegramRequestError) {
+          throw error;
+        }
+
+        const code = telegramErrorCode(error);
+        const retryAfter = telegramRetryAfter(error);
+        if (code === 429) {
+          if (attempt === 0 && retryAfter != null) {
+            attempt++;
+            await schedulerSleep(retryAfter * 1000);
+            continue;
+          }
+          throw requestError(error, 'rejected', meta);
+        }
+
+        const temporaryFailure = code == null || code >= 500;
+        if (operationKind === 'read' && temporaryFailure) {
+          if (attempt === 0) {
+            attempt++;
+            await schedulerSleep(1000);
+            continue;
+          }
+          throw requestError(error, 'rejected', meta);
+        }
+
+        if (temporaryFailure) {
+          throw requestError(error, 'ambiguous', meta);
+        }
+        if (code >= 400 && code < 500) {
+          throw requestError(error, 'permanent', meta);
+        }
+        throw requestError(error, 'rejected', meta);
+      }
+    }
+  };
+
+  const interactive = (operation, meta = {}) =>
+    interactiveLane.enqueue(() => executeWithRetry(operation, 'interactive', meta));
+  const delivery = (scope, operation, meta = {}) =>
+    deliveryLane.enqueue(scope, () => executeWithRetry(operation, 'mutating', meta));
+  const lookup = (key, operation, meta = {}) => {
     if (closedError) return Promise.reject(closedError);
     const normalizedKey = String(key);
     const existing = lookupInFlight.get(normalizedKey);
     if (existing) return existing;
 
-    const request = lookupLane.enqueue(operation);
+    const request = lookupLane.enqueue(
+      () => executeWithRetry(operation, 'read', meta)
+    );
     lookupInFlight.set(normalizedKey, request);
     request.then(
       () => lookupInFlight.delete(normalizedKey),

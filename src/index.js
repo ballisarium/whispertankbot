@@ -10,7 +10,10 @@ import { shutdownUserSettings } from './helpers/userSettings.js';
 import { buildDailyReport, getStatsTimezone, setStatsEnabled, setStatsTimezone, sendDailyReport } from './helpers/stats.js';
 import { getDateWithDayOffset, getNextRunDelayMs, parseAdminIds } from './helpers/config.js';
 import { learnUser, shutdownUserDirectory } from './helpers/userDirectory.js';
-import { shutdownTelegramScheduler } from './helpers/telegramScheduler.js';
+import {
+  getTelegramErrorLogContext,
+  shutdownTelegramScheduler,
+} from './helpers/telegramScheduler.js';
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const BOT_USERNAME = process.env.BOT_USERNAME;
@@ -41,8 +44,10 @@ const bot = new Telegraf(BOT_TOKEN, {
 });
 
 bot.catch((err, ctx) => {
-  const updateId = ctx?.update?.update_id || 'unknown';
-  console.error(`Bot error for update ${updateId}:`, err);
+  console.error(
+    'Bot error',
+    getTelegramErrorLogContext(err, ctx?.update?.update_id)
+  );
 });
 
 bot.use(async (ctx, next) => {

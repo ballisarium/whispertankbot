@@ -18,6 +18,11 @@ const deferred = () => {
 
 const flushTasks = () => new Promise((resolve) => setImmediate(resolve));
 
+const telegramError = (code) => Object.assign(
+  new Error(`Telegram rejected request with ${code}`),
+  { code }
+);
+
 function createReadContext(secretId, { from, answerCbQuery, sendMessage, getChat, editMessageText } = {}) {
   return {
     match: [`read:${secretId}`, secretId],
@@ -117,7 +122,7 @@ test('only one parallel target read can consume a one-time secret', async () => 
   assert.equal(answers.filter((answer) => answer.text === 'single read').length, 1);
 });
 
-test('keeps a consumed target secret if full long-message delivery fails', async (t) => {
+test('restores a consumed target secret after a known delivery rejection', async (t) => {
   t.mock.method(console, 'warn', () => {});
   const longSecret = 'x'.repeat(250);
   const secretId = await createSecret({
@@ -135,7 +140,7 @@ test('keeps a consumed target secret if full long-message delivery fails', async
     from: { id: 42 },
     answerCbQuery: async (text, options) => answers.push({ text, options }),
     sendMessage: async () => {
-      throw new Error('forbidden');
+      throw telegramError(403);
     },
   });
 
@@ -143,6 +148,29 @@ test('keeps a consumed target secret if full long-message delivery fails', async
 
   assert.ok(await getSecret(secretId));
   assert.notEqual(answers[0]?.text, `${longSecret.slice(0, 187)}...`);
+});
+
+test('does not restore a consumed target secret after ambiguous delivery', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const secretId = await createSecret({
+    targetType: 'id',
+    targetNormalized: '42',
+    targetLabel: 'ID 42',
+    secretText: 'x'.repeat(250),
+    authorId: 1,
+    targetPosition: 'front',
+    lang: 'en',
+  });
+  const ctx = createReadContext(secretId, {
+    from: { id: 42 },
+    sendMessage: async () => {
+      throw new Error('socket closed after write');
+    },
+  });
+
+  await handleReadCallback(ctx);
+
+  assert.equal(await getSecret(secretId), null);
 });
 
 test('submits callback answers through the interactive scheduler', async () => {

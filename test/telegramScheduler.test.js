@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createTelegramScheduler,
+  getTelegramErrorLogContext,
+  TelegramRequestError,
   TelegramSchedulerClosedError,
   TelegramSchedulerOverloadedError,
 } from '../src/helpers/telegramScheduler.js';
@@ -17,6 +19,14 @@ const deferred = () => {
 };
 
 const flushTasks = () => new Promise((resolve) => setImmediate(resolve));
+
+const telegramError = (code, retryAfter) => Object.assign(
+  new Error(`Telegram rejected request with ${code}`),
+  {
+    code,
+    parameters: retryAfter === undefined ? undefined : { retry_after: retryAfter },
+  }
+);
 
 test('interactive work starts while same-chat delivery is pacing', async () => {
   let now = 0;
@@ -232,4 +242,159 @@ test('shutdown rejects a repeated key while its original lookup is still running
 
   assert.equal(await active, 42);
   await assert.rejects(repeated, TelegramSchedulerClosedError);
+});
+
+test('waits exact retry_after and retries a rejected call once', async () => {
+  const sleeps = [];
+  let attempts = 0;
+  const scheduler = createTelegramScheduler({
+    sleep: async (ms) => {
+      sleeps.push(ms);
+    },
+  });
+
+  const result = await scheduler.interactive(async () => {
+    attempts++;
+    if (attempts === 1) throw telegramError(429, 7);
+    return true;
+  }, { method: 'answerInlineQuery', updateId: 11 });
+
+  assert.equal(result, true);
+  assert.equal(attempts, 2);
+  assert.deepEqual(sleeps, [7_000]);
+  await scheduler.shutdown();
+});
+
+test('does not make a third attempt after a second flood wait', async () => {
+  const sleeps = [];
+  let attempts = 0;
+  const scheduler = createTelegramScheduler({
+    sleep: async (ms) => {
+      sleeps.push(ms);
+    },
+  });
+
+  await assert.rejects(
+    scheduler.interactive(async () => {
+      attempts++;
+      throw telegramError(429, 3);
+    }, { method: 'answerCbQuery', updateId: 12 }),
+    (error) => {
+      assert.ok(error instanceof TelegramRequestError);
+      assert.equal(error.kind, 'rejected');
+      assert.equal(error.retryAfter, 3);
+      return true;
+    }
+  );
+  assert.equal(attempts, 2);
+  assert.deepEqual(sleeps, [3_000]);
+  await scheduler.shutdown();
+});
+
+test('retries a read once after a temporary network failure', async () => {
+  const sleeps = [];
+  let attempts = 0;
+  const scheduler = createTelegramScheduler({
+    sleep: async (ms) => {
+      sleeps.push(ms);
+    },
+  });
+
+  const result = await scheduler.lookup('user:42', async () => {
+    attempts++;
+    if (attempts === 1) throw new Error('connection reset');
+    return { id: 42 };
+  }, { method: 'getChat', updateId: 13 });
+
+  assert.deepEqual(result, { id: 42 });
+  assert.equal(attempts, 2);
+  assert.deepEqual(sleeps, [1_000]);
+  await scheduler.shutdown();
+});
+
+test('does not retry an ambiguous mutating network failure', async () => {
+  let attempts = 0;
+  const scheduler = createTelegramScheduler();
+
+  await assert.rejects(
+    scheduler.delivery('user:42', async () => {
+      attempts++;
+      throw new Error('socket closed after write');
+    }, { method: 'sendMessage', updateId: 14 }),
+    (error) => {
+      assert.ok(error instanceof TelegramRequestError);
+      assert.equal(error.kind, 'ambiguous');
+      return true;
+    }
+  );
+  assert.equal(attempts, 1);
+  await scheduler.shutdown();
+});
+
+test('does not retry an ambiguous mutating Telegram 5xx', async () => {
+  let attempts = 0;
+  const scheduler = createTelegramScheduler();
+
+  await assert.rejects(
+    scheduler.delivery('user:42', async () => {
+      attempts++;
+      throw telegramError(502);
+    }, { method: 'editMessageText', updateId: 15 }),
+    (error) => {
+      assert.ok(error instanceof TelegramRequestError);
+      assert.equal(error.kind, 'ambiguous');
+      assert.equal(error.code, 502);
+      return true;
+    }
+  );
+  assert.equal(attempts, 1);
+  await scheduler.shutdown();
+});
+
+test('does not retry a permanent Telegram 4xx', async () => {
+  let attempts = 0;
+  const scheduler = createTelegramScheduler();
+
+  await assert.rejects(
+    scheduler.delivery('user:42', async () => {
+      attempts++;
+      throw telegramError(403);
+    }, { method: 'sendMessage', updateId: 16 }),
+    (error) => {
+      assert.ok(error instanceof TelegramRequestError);
+      assert.equal(error.kind, 'permanent');
+      assert.equal(error.code, 403);
+      return true;
+    }
+  );
+  assert.equal(attempts, 1);
+  await scheduler.shutdown();
+});
+
+test('exposes safe error metadata without the original message or payload', async () => {
+  const scheduler = createTelegramScheduler();
+  let caught;
+
+  try {
+    await scheduler.delivery('user:42', async () => {
+      throw new Error('secret body and token must not be logged');
+    }, {
+      method: 'sendMessage',
+      updateId: 17,
+      payload: 'secret body',
+    });
+  } catch (error) {
+    caught = error;
+  }
+
+  assert.ok(caught instanceof TelegramRequestError);
+  assert.doesNotMatch(caught.message, /secret body|token/);
+  assert.deepEqual(getTelegramErrorLogContext(caught, 99), {
+    code: null,
+    kind: 'ambiguous',
+    method: 'sendMessage',
+    retryAfter: null,
+    updateId: 17,
+  });
+  await scheduler.shutdown();
 });

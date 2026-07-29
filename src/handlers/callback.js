@@ -5,6 +5,7 @@ import { trackRead } from '../helpers/stats.js';
 import { maxSecretLength } from '../helpers/parseInlineQuery.js';
 import {
   deliveryScopeFor,
+  getTelegramErrorLogContext,
   scheduleDelivery,
   scheduleInteractive,
 } from '../helpers/telegramScheduler.js';
@@ -61,8 +62,16 @@ function getAccessRole(secret, from) {
 
 async function deliverSecret(ctx, secret, lang) {
   if (secret.secretText.length <= MAX_ALERT_LENGTH) {
-    await answerCallback(ctx, secret.secretText, { show_alert: true });
-    return true;
+    try {
+      await answerCallback(ctx, secret.secretText, { show_alert: true });
+      return { delivered: true };
+    } catch (error) {
+      console.warn(
+        'Failed to answer secret callback',
+        getTelegramErrorLogContext(error, ctx.update?.update_id)
+      );
+      return { delivered: false, outcome: error?.kind || 'ambiguous' };
+    }
   }
 
   try {
@@ -74,16 +83,40 @@ async function deliverSecret(ctx, secret, lang) {
       }),
       { method: 'sendMessage', updateId: ctx.update?.update_id }
     );
-    await answerCallback(ctx, t('secretSentDM', lang), { show_alert: true });
-    return true;
-  } catch (err) {
-    console.warn('Failed to DM secret', err?.message || err);
-    await answerCallback(ctx, t('secretDeliveryFailed', lang), { show_alert: true });
-    return false;
+  } catch (error) {
+    console.warn(
+      'Failed to DM secret',
+      getTelegramErrorLogContext(error, ctx.update?.update_id)
+    );
+    try {
+      await answerCallback(ctx, t('secretDeliveryFailed', lang), { show_alert: true });
+    } catch (notificationError) {
+      console.warn(
+        'Failed to report secret delivery error',
+        getTelegramErrorLogContext(notificationError, ctx.update?.update_id)
+      );
+    }
+    return { delivered: false, outcome: error?.kind || 'ambiguous' };
   }
+
+  try {
+    await answerCallback(ctx, t('secretSentDM', lang), { show_alert: true });
+  } catch (error) {
+    console.warn(
+      'Failed to confirm secret delivery',
+      getTelegramErrorLogContext(error, ctx.update?.update_id)
+    );
+  }
+  return { delivered: true };
 }
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const RESTORABLE_DELIVERY_OUTCOMES = new Set([
+  'overloaded',
+  'permanent',
+  'rejected',
+  'shutdown',
+]);
 
 export async function handleReadCallback(ctx) {
   const secretId = ctx.match?.[1];
@@ -134,9 +167,11 @@ export async function handleReadCallback(ctx) {
       return;
     }
 
-    const delivered = await deliverSecret(ctx, consumedSecret, lang);
-    if (!delivered) {
-      await restoreSecret(secretId, consumedSecret, consumed.ttlMs);
+    const delivery = await deliverSecret(ctx, consumedSecret, lang);
+    if (!delivery.delivered) {
+      if (RESTORABLE_DELIVERY_OUTCOMES.has(delivery.outcome)) {
+        await restoreSecret(secretId, consumedSecret, consumed.ttlMs);
+      }
       return;
     }
 
@@ -152,8 +187,8 @@ export async function handleReadCallback(ctx) {
     return;
   }
 
-  const delivered = await deliverSecret(ctx, secret, lang);
-  if (delivered) {
+  const delivery = await deliverSecret(ctx, secret, lang);
+  if (delivery.delivered) {
     await trackRead({ outcome: 'delivered' });
   }
 }
