@@ -1,4 +1,4 @@
-import { Markup } from 'telegraf';
+import { InlineKeyboard } from 'grammy';
 import { createSecret } from '../helpers/secrets.js';
 import { parseInlineQuery, getBotUsername, ParseError } from '../helpers/parseInlineQuery.js';
 import { checkDraftRateLimit, RateLimitResult } from '../helpers/rateLimit.js';
@@ -19,8 +19,7 @@ import {
 } from '../helpers/telegramScheduler.js';
 
 function buildInlineKeyboard(secretId, lang) {
-  return Markup.inlineKeyboard([[Markup.button.callback(t('readButton', lang), `read:${secretId}`)]])
-    .reply_markup;
+  return new InlineKeyboard().text(t('readButton', lang), `read:${secretId}`);
 }
 
 const stripTgEmoji = (text = '') =>
@@ -44,7 +43,7 @@ async function resolveTargetLabels(ctx, parsed, lang) {
     if (!profile) {
       const chat = await scheduleLookup(
         `user:${parsed.targetId}`,
-        () => ctx.telegram.getChat(parsed.targetId),
+        () => ctx.api.getChat(parsed.targetId),
         { method: 'getChat', updateId: ctx.update?.update_id }
       );
       if (

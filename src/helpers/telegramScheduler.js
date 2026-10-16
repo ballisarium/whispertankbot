@@ -41,11 +41,11 @@ const finiteNumberOrNull = (value) => {
 };
 
 const telegramErrorCode = (error) =>
-  finiteNumberOrNull(error?.code ?? error?.response?.error_code);
+  finiteNumberOrNull(error?.code ?? error?.error_code);
 
 const telegramRetryAfter = (error) => {
   const retryAfter = finiteNumberOrNull(
-    error?.parameters?.retry_after ?? error?.response?.parameters?.retry_after
+    error?.parameters?.retry_after
   );
   return retryAfter != null && retryAfter > 0 ? retryAfter : null;
 };

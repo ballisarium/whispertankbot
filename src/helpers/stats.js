@@ -437,7 +437,7 @@ export async function sendDailyReport(bot, adminIds = [], dateString) {
       const report = await buildDailyReport(dateString, lang);
       await scheduleDelivery(
         `user:${adminId}`,
-        () => bot.telegram.sendMessage(adminId, report, {
+        () => bot.api.sendMessage(adminId, report, {
           parse_mode: 'HTML',
           disable_web_page_preview: true,
         }),

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { Bot, GrammyError } from 'grammy';
 import test, { afterEach } from 'node:test';
 import { handleReadCallback } from '../src/handlers/callback.js';
 import { createSecret, getSecret, shutdown } from '../src/helpers/secrets.js';
@@ -18,18 +19,20 @@ const deferred = () => {
 
 const flushTasks = () => new Promise((resolve) => setImmediate(resolve));
 
-const telegramError = (code) => Object.assign(
-  new Error(`Telegram rejected request with ${code}`),
-  { code }
+const telegramError = (code) => new GrammyError(
+  'Telegram rejected request',
+  { ok: false, error_code: code, description: 'Rejected' },
+  'sendMessage',
+  {}
 );
 
-function createReadContext(secretId, { from, answerCbQuery, sendMessage, getChat, editMessageText } = {}) {
+function createReadContext(secretId, { from, answerCallbackQuery, sendMessage, getChat, editMessageText } = {}) {
   return {
     match: [`read:${secretId}`, secretId],
     from,
-    answerCbQuery: answerCbQuery || (async () => {}),
+    answerCallbackQuery: answerCallbackQuery || (async () => {}),
     editMessageText: editMessageText || (async () => {}),
-    telegram: {
+    api: {
       sendMessage: sendMessage || (async () => {}),
       getChat: getChat || (async () => null),
     },
@@ -55,7 +58,7 @@ test('reveals an unresolved username secret to the matching username', async () 
   const answers = [];
   const ctx = createReadContext(secretId, {
     from: { id: 2, username: 'Friend' },
-    answerCbQuery: async (text, options) => answers.push({ text, options }),
+    answerCallbackQuery: async ({ text, ...options }) => answers.push({ text, options }),
   });
 
   await handleReadCallback(ctx);
@@ -77,7 +80,7 @@ test('blocks an unresolved username secret from a different username', async () 
   const answers = [];
   const ctx = createReadContext(secretId, {
     from: { id: 2, username: 'stranger' },
-    answerCbQuery: async (text, options) => answers.push({ text, options }),
+    answerCallbackQuery: async ({ text, ...options }) => answers.push({ text, options }),
   });
 
   await handleReadCallback(ctx);
@@ -100,7 +103,7 @@ test('blocks an unresolved username secret from a user without a username', asyn
   const answers = [];
   const ctx = createReadContext(secretId, {
     from: { id: 2 },
-    answerCbQuery: async (text, options) => answers.push({ text, options }),
+    answerCallbackQuery: async ({ text, ...options }) => answers.push({ text, options }),
   });
 
   await handleReadCallback(ctx);
@@ -124,7 +127,7 @@ test('allows a resolved username target even after the target removes username',
   const answers = [];
   const ctx = createReadContext(secretId, {
     from: { id: 2 },
-    answerCbQuery: async (text, options) => answers.push({ text, options }),
+    answerCallbackQuery: async ({ text, ...options }) => answers.push({ text, options }),
   });
 
   await handleReadCallback(ctx);
@@ -145,25 +148,50 @@ test('only one parallel target read can consume a one-time secret', async () => 
 
   const answers = [];
   const pendingDeliveries = [];
-  const makeCtx = () => createReadContext(secretId, {
-    from: { id: 42 },
-    answerCbQuery: async (text, options) => {
-      answers.push({ text, options });
-      if (text === 'single read') {
+  const edits = [];
+  const bot = new Bot('123:offline-test', {
+    botInfo: { id: 123, is_bot: true, first_name: 'Test', username: 'test_bot' },
+  });
+  bot.callbackQuery(/^read:(.+)$/, handleReadCallback);
+  bot.api.config.use(async (_previous, method, payload) => {
+    if (method === 'answerCallbackQuery') {
+      answers.push(payload);
+      if (payload.text === 'single read') {
         await new Promise((resolve) => pendingDeliveries.push(resolve));
       }
+    } else if (method === 'editMessageText') {
+      edits.push(payload);
+    } else {
+      assert.fail(`Unexpected Telegram API call: ${method}`);
+    }
+    return { ok: true, result: true };
+  });
+  const makeUpdate = (id) => ({
+    update_id: id,
+    callback_query: {
+      id: `callback-${id}`,
+      from: { id: 42, is_bot: false, first_name: 'Reader' },
+      inline_message_id: 'inline-message',
+      chat_instance: 'test-chat',
+      data: `read:${secretId}`,
     },
   });
 
-  const first = handleReadCallback(makeCtx());
+  const first = bot.handleUpdate(makeUpdate(1));
   await new Promise((resolve) => setImmediate(resolve));
-  const second = handleReadCallback(makeCtx());
+  const second = bot.handleUpdate(makeUpdate(2));
   await new Promise((resolve) => setImmediate(resolve));
 
   for (const resolve of pendingDeliveries) resolve();
   await Promise.all([first, second]);
 
   assert.equal(answers.filter((answer) => answer.text === 'single read').length, 1);
+  assert.equal(answers.find((answer) => answer.text === 'single read').show_alert, true);
+  assert.equal(answers.find((answer) => answer.text === 'single read').callback_query_id, 'callback-1');
+  assert.equal(edits.length, 1);
+  assert.equal(edits[0].inline_message_id, 'inline-message');
+  assert.deepEqual(edits[0].reply_markup.inline_keyboard, []);
+  assert.equal(await getSecret(secretId), null);
 });
 
 test('restores a consumed target secret after a known delivery rejection', async (t) => {
@@ -182,7 +210,7 @@ test('restores a consumed target secret after a known delivery rejection', async
   const answers = [];
   const ctx = createReadContext(secretId, {
     from: { id: 42 },
-    answerCbQuery: async (text, options) => answers.push({ text, options }),
+    answerCallbackQuery: async ({ text, ...options }) => answers.push({ text, options }),
     sendMessage: async () => {
       throw telegramError(403);
     },
@@ -228,7 +256,7 @@ test('submits callback answers through the interactive scheduler', async () => {
   const answers = [];
   const ctx = createReadContext('invalid', {
     from: { id: 42 },
-    answerCbQuery: async (text, options) => answers.push({ text, options }),
+    answerCallbackQuery: async ({ text, ...options }) => answers.push({ text, options }),
   });
   let settled = false;
   const handling = handleReadCallback(ctx).then(() => {

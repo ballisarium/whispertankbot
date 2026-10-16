@@ -1,4 +1,3 @@
-import { Markup } from 'telegraf';
 import { consumeSecret, getSecret, restoreSecret } from '../helpers/secrets.js';
 import { t, DEFAULT_LANG } from '../helpers/i18n.js';
 import { trackRead } from '../helpers/stats.js';
@@ -22,8 +21,8 @@ export const AccessRole = {
 
 const answerCallback = (ctx, text, options) =>
   scheduleInteractive(
-    () => ctx.answerCbQuery(text, options),
-    { method: 'answerCbQuery', updateId: ctx.update?.update_id }
+    () => ctx.answerCallbackQuery({ text, ...options }),
+    { method: 'answerCallbackQuery', updateId: ctx.update?.update_id }
   );
 
 const editCallbackMessage = (ctx, text, options) =>
@@ -80,7 +79,7 @@ async function deliverSecret(ctx, secret, lang) {
   try {
     await scheduleDelivery(
       `user:${ctx.from.id}`,
-      () => ctx.telegram.sendMessage(ctx.from.id, secret.secretText, {
+      () => ctx.api.sendMessage(ctx.from.id, secret.secretText, {
         disable_notification: true,
         protect_content: true,
       }),
@@ -182,7 +181,7 @@ export async function handleReadCallback(ctx) {
     try {
       await editCallbackMessage(ctx, t('secretAlreadyRead', lang), {
         parse_mode: 'HTML',
-        reply_markup: Markup.inlineKeyboard([]).reply_markup,
+        reply_markup: { inline_keyboard: [] },
       });
     } catch (err) {
       console.warn(

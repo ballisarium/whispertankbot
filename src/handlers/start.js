@@ -1,4 +1,4 @@
-import { Markup } from 'telegraf';
+import { InlineKeyboard } from 'grammy';
 import { detectLang, t } from '../helpers/i18n.js';
 import { getUserLang, setUserLang, checkStartCooldown } from '../helpers/userSettings.js';
 import { getBotUsername } from '../helpers/parseInlineQuery.js';
@@ -25,25 +25,21 @@ const editMessage = (ctx, text, options) =>
 
 const answerCallback = (ctx, text, options) =>
   scheduleInteractive(
-    () => ctx.answerCbQuery(text, options),
-    { method: 'answerCbQuery', updateId: ctx.update?.update_id }
+    () => ctx.answerCallbackQuery({ text, ...options }),
+    { method: 'answerCallbackQuery', updateId: ctx.update?.update_id }
   );
 
 function buildMainKeyboard(lang) {
-  return Markup.inlineKeyboard([
-    [Markup.button.callback(t('changeLanguage', lang), 'menu:lang')],
-  ]);
+  return new InlineKeyboard().text(t('changeLanguage', lang), 'menu:lang');
 }
 
 function buildLangKeyboard(lang) {
-  return Markup.inlineKeyboard([
-    [
-      Markup.button.callback('🇬🇧 english', 'lang:en'),
-      Markup.button.callback('🇷🇺 русский', 'lang:ru'),
-      Markup.button.callback('🇺🇦 українська', 'lang:uk'),
-    ],
-    [Markup.button.callback(t('back', lang), 'menu:back')],
-  ]);
+  return new InlineKeyboard()
+    .text('🇬🇧 english', 'lang:en')
+    .text('🇷🇺 русский', 'lang:ru')
+    .text('🇺🇦 українська', 'lang:uk')
+    .row()
+    .text(t('back', lang), 'menu:back');
 }
 
 export async function handleStart(ctx) {
@@ -67,7 +63,7 @@ export async function handleStart(ctx) {
   
   await reply(ctx, message, {
     parse_mode: 'HTML',
-    ...buildMainKeyboard(lang),
+    reply_markup: buildMainKeyboard(lang),
   });
 }
 
@@ -102,7 +98,7 @@ export async function handleLangCallback(ctx) {
   try {
     await editMessage(ctx, message, {
       parse_mode: 'HTML',
-      ...buildMainKeyboard(lang),
+      reply_markup: buildMainKeyboard(lang),
     });
   } catch (err) {
     // message may be unchanged; still acknowledge the selection
@@ -122,7 +118,7 @@ export async function handleMenuCallback(ctx) {
   try {
     await editMessage(ctx, message, {
       parse_mode: 'HTML',
-      ...keyboard,
+      reply_markup: keyboard,
     });
   } catch (err) {
     // ignore "message is not modified"

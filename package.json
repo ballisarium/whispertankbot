@@ -1,7 +1,7 @@
 {
   "name": "whisper-bot",
   "version": "1.0.0",
-  "description": "Inline whisper Telegram bot built with Telegraf",
+  "description": "Inline whisper Telegram bot built with grammY",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
@@ -9,8 +9,9 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@grammyjs/runner": "2.0.3",
     "dotenv": "^16.3.1",
-    "ioredis": "^5.3.2",
-    "telegraf": "^4.16.0"
+    "grammy": "1.46.0",
+    "ioredis": "^5.3.2"
   }
 }

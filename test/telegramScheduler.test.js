@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { GrammyError } from 'grammy';
 import test from 'node:test';
 import {
   createTelegramScheduler,
@@ -20,12 +21,16 @@ const deferred = () => {
 
 const flushTasks = () => new Promise((resolve) => setImmediate(resolve));
 
-const telegramError = (code, retryAfter) => Object.assign(
-  new Error(`Telegram rejected request with ${code}`),
+const telegramError = (code, retryAfter) => new GrammyError(
+  'Telegram rejected request',
   {
-    code,
+    ok: false,
+    error_code: code,
+    description: 'Rejected',
     parameters: retryAfter === undefined ? undefined : { retry_after: retryAfter },
-  }
+  },
+  'sendMessage',
+  {}
 );
 
 test('interactive work starts while same-chat delivery is pacing', async () => {
@@ -278,7 +283,7 @@ test('does not make a third attempt after a second flood wait', async () => {
     scheduler.interactive(async () => {
       attempts++;
       throw telegramError(429, 3);
-    }, { method: 'answerCbQuery', updateId: 12 }),
+    }, { method: 'answerCallbackQuery', updateId: 12 }),
     (error) => {
       assert.ok(error instanceof TelegramRequestError);
       assert.equal(error.kind, 'rejected');

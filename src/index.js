@@ -1,5 +1,6 @@
 import 'dotenv/config';
-import { Telegraf } from 'telegraf';
+import { Bot } from 'grammy';
+import { createBatchSink, createRunner, createSource, createUpdateFetcher } from '@grammyjs/runner';
 import { handleInlineQuery } from './handlers/inline.js';
 import { handleReadCallback } from './handlers/callback.js';
 import { handleStart, handleLangCallback, handleMenuCallback, handleStatsCommand } from './handlers/start.js';
@@ -41,32 +42,31 @@ if (!BOT_USERNAME) {
 setStatsEnabled(STATS_ENABLED);
 setStatsTimezone(STATS_TIMEZONE);
 
-const bot = new Telegraf(BOT_TOKEN, {
-  username: normalizedBotUsername || undefined,
-});
+const bot = new Bot(BOT_TOKEN);
 
-bot.catch((err, ctx) => {
+const handleBotError = ({ error, ctx }) => {
   console.error(
     'Bot error',
-    getTelegramErrorLogContext(err, ctx?.update?.update_id)
+    getTelegramErrorLogContext(error, ctx?.update?.update_id)
   );
-});
+};
+bot.catch(handleBotError);
 
 bot.use(async (ctx, next) => {
   await observeTelegramUser(
     ctx.from,
-    ctx.telegram,
+    ctx.api,
     ctx.update?.update_id
   );
   await observeMentionedUser(ctx.message?.reply_to_message?.from);
   return next();
 });
 
-bot.start(handleStart);
-bot.action(/^lang:(.+)$/, handleLangCallback);
-bot.action(/^menu:(.+)$/, handleMenuCallback);
+bot.command('start', handleStart);
+bot.callbackQuery(/^lang:(.+)$/, handleLangCallback);
+bot.callbackQuery(/^menu:(.+)$/, handleMenuCallback);
 bot.on('inline_query', handleInlineQuery);
-bot.action(/^read:(.+)$/, handleReadCallback);
+bot.callbackQuery(/^read:(.+)$/, handleReadCallback);
 bot.command('stats', async (ctx) => {
   const userId = ctx.from?.id;
   const isAdmin = userId && ADMIN_IDS.includes(String(userId));
@@ -74,6 +74,12 @@ bot.command('stats', async (ctx) => {
 });
 
 let statsTimer = null;
+let runner = null;
+let nextUpdateOffset = 0;
+let skipOffsetSync = false;
+let shutdownPromise = null;
+let shuttingDown = false;
+const startupAbortController = new AbortController();
 
 async function startStatsScheduler() {
   if (!STATS_ENABLED) return;
@@ -101,6 +107,7 @@ async function startStatsScheduler() {
       );
     }
 
+    if (shuttingDown) return;
     const nextDelay = getNextRunDelayMs(timezone, STATS_SEND_AT);
     statsTimer = setTimeout(run, nextDelay);
     if (statsTimer.unref) statsTimer.unref();
@@ -108,35 +115,100 @@ async function startStatsScheduler() {
   if (statsTimer.unref) statsTimer.unref();
 }
 
-const shutdownResources = async (signal) => {
-  console.log(`Received ${signal}, shutting down...`);
-  bot.stop(signal);
-  if (statsTimer) {
-    clearTimeout(statsTimer);
-    statsTimer = null;
-  }
-  await shutdownTelegramScheduler();
-  shutdownUserDirectory();
-  await shutdownSecrets();
-  shutdownRateLimit();
-  shutdownUserSettings();
+const shutdownResources = (signal) => {
+  if (shutdownPromise) return shutdownPromise;
+  shuttingDown = true;
+  startupAbortController.abort();
+
+  shutdownPromise = (async () => {
+    console.log(`Received ${signal}, shutting down...`);
+    const stopped = runner?.stop();
+    if (statsTimer) {
+      clearTimeout(statsTimer);
+      statsTimer = null;
+    }
+
+    // Keep the existing five-second grace period even if middleware hangs.
+    let drained = !stopped;
+    const drain = Promise.resolve(stopped).then(
+      () => { drained = true; },
+      () => { drained = true; }
+    );
+    let drainTimer;
+    await Promise.all([
+      shutdownTelegramScheduler(),
+      Promise.race([
+        drain,
+        new Promise((resolve) => { drainTimer = setTimeout(resolve, 5000); }),
+      ]),
+    ]);
+    clearTimeout(drainTimer);
+
+    // Telegraf confirmed the last fetched offset after draining its batch.
+    // Runner leaves this to its caller. Never confirm an unfinished batch.
+    if (runner && drained && !skipOffsetSync) {
+      try {
+        await bot.api.getUpdates(
+          { offset: nextUpdateOffset, limit: 1 },
+          AbortSignal.timeout(3000)
+        );
+      } catch (err) {
+        console.warn(
+          'Failed to confirm update offset',
+          getSafeErrorLogContext(err, { kind: 'transport', operation: 'polling_offset' })
+        );
+      }
+    }
+
+    shutdownUserDirectory();
+    await shutdownSecrets();
+    shutdownRateLimit();
+    shutdownUserSettings();
+  })();
+  return shutdownPromise;
 };
 
 async function main() {
   try {
-    // Telegraf v4 `launch()` only resolves once the bot stops, so post-startup
-    // work must run from the onLaunch callback; otherwise the stats scheduler
-    // and the startup log would never run while the bot is polling.
-    await bot.launch(() => {
-      console.log(`Bot @${getBotUsername()} started successfully`);
-      startStatsScheduler().catch((err) => {
-        console.error(
-          'Failed to start stats scheduler',
-          getSafeErrorLogContext(err, { operation: 'stats_scheduler' })
-        );
-      });
+    await bot.init(startupAbortController.signal);
+    if (shuttingDown) return;
+    await bot.api.deleteWebhook({}, startupAbortController.signal);
+    if (shuttingDown) return;
+
+    const fetchUpdates = createUpdateFetcher(bot, {
+      fetch: { timeout: 50 },
+      retryInterval: 5000,
+      maxRetryTime: Infinity,
+      silent: true,
     });
+    const source = createSource({
+      supply: async (batchSize, signal) => {
+        const updates = await fetchUpdates(batchSize, signal);
+        const last = updates[updates.length - 1];
+        if (last) nextUpdateOffset = last.update_id + 1;
+        return updates;
+      },
+    });
+    // Match Telegraf: parallel work within a batch, then fetch the next batch.
+    const sink = createBatchSink(
+      { consume: (update) => bot.handleUpdate(update) },
+      handleBotError
+    );
+    runner = createRunner(source, sink);
+    runner.start();
+    const pollingTask = runner.task();
+
+    console.log(`Bot @${getBotUsername()} started successfully`);
+    startStatsScheduler().catch((err) => {
+      console.error(
+        'Failed to start stats scheduler',
+        getSafeErrorLogContext(err, { operation: 'stats_scheduler' })
+      );
+    });
+    await pollingTask;
   } catch (err) {
+    if (shuttingDown) return;
+    skipOffsetSync = err?.error_code === 401 || err?.error_code === 409;
     console.error(
       'Failed to launch bot',
       getSafeErrorLogContext(err, { kind: 'transport', operation: 'bot_launch' })
@@ -146,12 +218,20 @@ async function main() {
   }
 }
 
-main();
-
 const gracefulShutdown = async (signal) => {
-  await shutdownResources(signal);
-  process.exit(0);
+  try {
+    await shutdownResources(signal);
+    process.exit(0);
+  } catch (err) {
+    console.error(
+      'Failed to shut down bot',
+      getSafeErrorLogContext(err, { operation: 'bot_shutdown' })
+    );
+    process.exit(1);
+  }
 };
 
 process.once('SIGINT', () => gracefulShutdown('SIGINT'));
 process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+main();

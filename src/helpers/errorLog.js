@@ -16,7 +16,7 @@ export const getSafeErrorLogContext = (
   error,
   { kind = 'internal', operation = null, updateId } = {}
 ) => ({
-  code: safeAtom(error?.code ?? error?.response?.error_code),
+  code: safeAtom(error?.code ?? error?.error_code),
   kind: safeAtom(error?.kind) || safeAtom(kind) || 'internal',
   operation: safeAtom(operation),
   updateId: safeUpdateId(updateId),

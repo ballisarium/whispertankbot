@@ -39,7 +39,7 @@ function createInlineContext({ query, fromId = 10, getChat } = {}) {
       },
     },
     answerInlineQuery: async (results, options) => answers.push({ results, options }),
-    telegram: {
+    api: {
       getChat: getChat || (async () => ({ id: 42, type: 'private', username: 'friend' })),
     },
   };

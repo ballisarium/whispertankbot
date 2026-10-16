@@ -89,7 +89,7 @@ test('submits daily reports through the delivery scheduler', async () => {
   await flushTasks();
   const messages = [];
   const bot = {
-    telegram: {
+    api: {
       sendMessage: async (...args) => messages.push(args),
     },
   };
